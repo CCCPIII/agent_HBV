@@ -157,13 +157,23 @@ class StockMonitorGraph:
         return state
 
     def analyze_impact(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        import re as _re
+
         analyses = []
         for alert in state["alerts"]:
+            value = 0.0
+            if alert.message:
+                match = _re.search(r"(-?\d+(?:\.\d+)?)\s*%", alert.message)
+                if match:
+                    try:
+                        value = float(match.group(1))
+                    except ValueError:
+                        value = 0.0
             payload = {
                 "related_alert_id": alert.id,
                 "ticker": alert.ticker,
                 "alert_type": alert.alert_type,
-                "value": alert.message and float(alert.message.split()[2].replace("%", "")) if "%" in alert.message else 0.0,
+                "value": value,
                 "title": alert.title,
                 "source_url": alert.source_url,
             }
