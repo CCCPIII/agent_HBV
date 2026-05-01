@@ -1,0 +1,16 @@
+version: '3.9'
+services:
+  app:
+    image: python:3.11-slim
+    working_dir: /app
+    volumes:
+      - .:/app
+    ports:
+      - '8000:8000'
+      - '8501:8501'
+    environment:
+      - DATABASE_URL=sqlite:///./investment_agent.db
+      - OPENAI_API_KEY=
+      - TELEGRAM_BOT_TOKEN=
+      - TELEGRAM_CHAT_ID=
+    command: bash -lc "pip install -r requirements.txt && uvicorn app.main:app --host 0.0.0.0 --port 8000"

@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Investment Agent System</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #07090f;
+      --panel: #111827;
+      --panel-alt: #1d2433;
+      --text: #e5e7eb;
+      --muted: #9ca3af;
+      --accent: #6d28d9;
+      --accent-strong: #7c3aed;
+      --border: rgba(148, 163, 184, 0.25);
+      --shadow: 0 24px 80px rgba(9, 11, 23, 0.35);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: radial-gradient(circle at top, rgba(124, 58, 237, 0.18), transparent 32%),
+                  linear-gradient(180deg, #06080f 0%, #0d1220 100%);
+      color: var(--text);
+      font-family: Inter, Roboto, Arial, sans-serif;
+    }
+
+    header {
+      padding: 24px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      background: rgba(7, 9, 15, 0.96);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    header h1 {
+      margin: 0;
+      font-size: 1.65rem;
+      letter-spacing: 0.03em;
+    }
+
+    header p {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+
+    .page {
+      max-width: 1180px;
+      margin: 20px auto 40px;
+      padding: 0 20px 20px;
+    }
+
+    .tabs {
+      display: grid;
+      grid-auto-flow: column;
+      gap: 12px;
+      overflow-x: auto;
+      padding: 16px 0;
+    }
+
+    .tab-btn {
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.03);
+      color: var(--muted);
+      padding: 12px 18px;
+      border-radius: 999px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      white-space: nowrap;
+    }
+
+    .tab-btn.active {
+      color: white;
+      border-color: rgba(109, 40, 217, 0.5);
+      background: rgba(109, 40, 217, 0.18);
+      box-shadow: 0 10px 30px rgba(109, 40, 217, 0.22);
+    }
+
+    .panel {
+      display: none;
+      gap: 18px;
+    }
+
+    .panel.active {
+      display: grid;
+    }
+
+    .grid-2 {
+      display: grid;
+      gap: 18px;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    }
+
+    .card {
+      background: rgba(17, 24, 39, 0.95);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 22px;
+      padding: 22px;
+      box-shadow: var(--shadow);
+    }
+
+    .card h2 {
+      margin: 0 0 18px;
+      font-size: 1.2rem;
+      color: white;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 8px;
+      color: var(--muted);
+      font-size: 0.94rem;
+    }
+
+    input, select, button, textarea {
+      width: 100%;
+      border-radius: 14px;
+      background: #111827;
+      color: var(--text);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 12px 14px;
+      font-size: 0.95rem;
+      outline: none;
+      transition: border-color 0.2s ease, background 0.2s ease;
+    }
+
+    input:focus, select:focus, textarea:focus {
+      border-color: rgba(109, 40, 217, 0.8);
+      background: #141b2e;
+    }
+
+    button {
+      margin-top: 14px;
+      border: none;
+      background: linear-gradient(135deg, #7c3aed, #4338ca);
+      color: white;
+      cursor: pointer;
+      font-weight: 600;
+      transition: transform 0.15s ease, box-shadow 0.2s ease;
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 14px 35px rgba(124, 58, 237, 0.28);
+    }
+
+    .status {
+      margin-top: 16px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 16px;
+      padding: 16px;
+      color: var(--text);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 14px;
+      color: var(--text);
+      font-size: 0.95rem;
+    }
+
+    th, td {
+      border: 1px solid rgba(255,255,255,0.08);
+      padding: 12px 10px;
+      text-align: left;
+    }
+
+    th {
+      background: rgba(255,255,255,0.04);
+      color: var(--muted);
+      font-weight: 600;
+    }
+
+    td {
+      background: rgba(255,255,255,0.02);
+    }
+
+    pre {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+      padding: 18px;
+      border-radius: 16px;
+      overflow-x: auto;
+      max-height: 320px;
+      color: var(--text);
+    }
+
+    .section-title {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .section-title span {
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+
+    .notice {
+      color: #c7d2fe;
+      font-size: 0.95rem;
+      margin-top: 8px;
+    }
+
+    .empty-state {
+      padding: 24px;
+      border-radius: 18px;
+      border: 1px dashed rgba(255,255,255,0.12);
+      text-align: center;
+      color: var(--muted);
+    }
+
+    @media (max-width: 768px) {
+      .tabs { grid-auto-flow: row; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Investment Agent System</h1>
+      <p>黑色主题 | 标签切换式静态仪表盘</p>
+    </div>
+    <div class="section-title">
+      <span>支持 Watchlist、Portfolio、Alerts、Catalysts、News、Analysis、Monitor</span>
+    </div>
+  </header>
+
+  <div class="page">
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="overview">概览</button>
+      <button class="tab-btn" data-tab="watchlist">Watchlist</button>
+      <button class="tab-btn" data-tab="portfolio">Portfolio</button>
+      <button class="tab-btn" data-tab="alerts">Alerts</button>
+      <button class="tab-btn" data-tab="catalysts">Catalysts</button>
+      <button class="tab-btn" data-tab="news">News</button>
+      <button class="tab-btn" data-tab="analysis">Analysis</button>
+      <button class="tab-btn" data-tab="monitor">Monitor</button>
+    </div>
+
+    <section id="overview" class="panel active">
+      <div class="grid-2">
+        <div class="card">
+          <div class="section-title">
+            <div>
+              <h2>后端设置</h2>
+              <p class="notice">请输入 FastAPI 后端地址并刷新数据。</p>
+            </div>
+          </div>
+          <label for="apiUrl">API URL</label>
+          <input id="apiUrl" type="text" value="http://localhost:8000" />
+          <button id="refreshAll">刷新全部数据</button>
+          <div id="status" class="status">准备就绪。</div>
+        </div>
+
+        <div class="card">
+          <div class="section-title">
+            <div>
+              <h2>统计概览</h2>
+              <span>快速查看当前数据状态</span>
+            </div>
+          </div>
+          <div id="summaryCards" class="grid-2"></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="watchlist" class="panel">
+      <div class="grid-2">
+        <div class="card">
+          <h2>添加监控标的</h2>
+          <label for="watchTicker">Ticker</label>
+          <input id="watchTicker" type="text" placeholder="AAPL" />
+          <label for="watchCompany">Company Name</label>
+          <input id="watchCompany" type="text" placeholder="Apple Inc." />
+          <label for="watchExchange">Exchange</label>
+          <input id="watchExchange" type="text" placeholder="NASDAQ" />
+          <label for="watchSector">Sector</label>
+          <input id="watchSector" type="text" placeholder="Technology" />
+          <label for="watchThreshold">Alert Threshold %</label>
+          <input id="watchThreshold" type="number" value="5" />
+          <button id="addWatchlist">添加到 Watchlist</button>
+        </div>
+        <div class="card">
+          <h2>当前 Watchlist</h2>
+          <div id="watchlistTable"></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="portfolio" class="panel">
+      <div class="grid-2">
+        <div class="card">
+          <h2>添加仓位</h2>
+          <label for="portfolioTicker">Ticker</label>
+          <input id="portfolioTicker" type="text" placeholder="AAPL" />
+          <label for="portfolioName">Company Name</label>
+          <input id="portfolioName" type="text" placeholder="Apple Inc." />
+          <label for="portfolioQuantity">Quantity</label>
+          <input id="portfolioQuantity" type="number" value="0" />
+          <label for="portfolioAverageCost">Average Cost</label>
+          <input id="portfolioAverageCost" type="number" value="0" step="0.01" />
+          <label for="portfolioCurrency">Currency</label>
+          <input id="portfolioCurrency" type="text" value="USD" />
+          <label for="portfolioDate">Purchase Date</label>
+          <input id="portfolioDate" type="date" />
+          <button id="addPosition">添加到 Portfolio</button>
+        </div>
+        <div class="card">
+          <h2>当前 Portfolio</h2>
+          <div id="portfolioTable"></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="alerts" class="panel">
+      <div class="card">
+        <div class="section-title">
+          <div>
+            <h2>Alerts</h2>
+            <span>显示检测到的价格告警与事件提醒</span>
+          </div>
+        </div>
+        <div id="alertsTable"></div>
+      </div>
+    </section>
+
+    <section id="catalysts" class="panel">
+      <div class="card">
+        <div class="section-title">
+          <div>
+            <h2>Catalysts</h2>
+            <span>显示当前催化剂日历</span>
+          </div>
+        </div>
+        <div id="catalystsTable"></div>
+      </div>
+    </section>
+
+    <section id="news" class="panel">
+      <div class="card">
+        <div class="section-title">
+          <div>
+            <h2>News</h2>
+            <span>最新新闻事件</span>
+          </div>
+        </div>
+        <div id="newsTable"></div>
+      </div>
+    </section>
+
+    <section id="analysis" class="panel">
+      <div class="card">
+        <div class="section-title">
+          <div>
+            <h2>Analysis</h2>
+            <span>智能分析和代理输出</span>
+          </div>
+        </div>
+        <div id="analysisTable"></div>
+      </div>
+    </section>
+
+    <section id="monitor" class="panel">
+      <div class="grid-2">
+        <div class="card">
+          <h2>监控运行</h2>
+          <button id="runMonitor">运行一次监控</button>
+          <div class="notice">运行后会刷新 Alert、Catalysts、News、Analysis 数据。</div>
+        </div>
+        <div class="card">
+          <h2>运行结果</h2>
+          <pre id="monitorResult">尚未运行</pre>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const statusEl = document.getElementById('status');
+    const apiUrlInput = document.getElementById('apiUrl');
+    const panels = document.querySelectorAll('.panel');
+    const tabs = document.querySelectorAll('.tab-btn');
+
+    function setStatus(text, isError = false) {
+      statusEl.textContent = text;
+      statusEl.style.background = isError ? 'rgba(220, 38, 38, 0.18)' : 'rgba(255,255,255,0.06)';
+      statusEl.style.color = isError ? '#fecaca' : '#e5e7eb';
+    }
+
+    function apiUrl() {
+      return apiUrlInput.value.trim().replace(/\/$/, '');
+    }
+
+    async function request(path, method = 'GET', body = null) {
+      const url = `${apiUrl()}${path}`;
+      const options = { method, headers: { 'Content-Type': 'application/json' } };
+      if (body) options.body = JSON.stringify(body);
+      const res = await fetch(url, options);
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`${res.status} ${res.statusText}: ${text}`);
+      }
+      return res.json();
+    }
+
+    function renderTable(data) {
+      if (!Array.isArray(data) || data.length === 0) {
+        return '<div class="empty-state">没有数据</div>';
+      }
+      const keys = Object.keys(data[0]);
+      const header = '<tr>' + keys.map(k => `<th>${k}</th>`).join('') + '</tr>';
+      const rows = data.map(item => '<tr>' + keys.map(key => `<td>${item[key] ?? ''}</td>`).join('') + '</tr>').join('');
+      return `<div style="overflow-x:auto;"><table>${header}${rows}</table></div>`;
+    }
+
+    function renderSummary(summary) {
+      const cards = [
+        { title: 'Watchlist', value: summary.watchlist ?? 0 },
+        { title: 'Portfolio', value: summary.portfolio ?? 0 },
+        { title: 'Alerts', value: summary.alerts ?? 0 },
+        { title: 'Catalysts', value: summary.catalysts ?? 0 },
+      ];
+      return cards.map(card => `
+        <div class="card" style="padding:18px; background: rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08);">
+          <h2 style="margin:0 0 8px; font-size:1rem; color:#a5b4fc;">${card.title}</h2>
+          <div style="font-size:2rem; font-weight:700;">${card.value}</div>
+        </div>`
+      ).join('');
+    }
+
+    async function loadData() {
+      try {
+        setStatus('加载数据...');
+        const [watchlist, portfolio, alerts, catalysts, news, analyses] = await Promise.all([
+          request('/watchlist'),
+          request('/portfolio'),
+          request('/alerts'),
+          request('/catalysts'),
+          request('/news'),
+          request('/analyses'),
+        ]);
+        document.getElementById('watchlistTable').innerHTML = renderTable(watchlist);
+        document.getElementById('portfolioTable').innerHTML = renderTable(portfolio);
+        document.getElementById('alertsTable').innerHTML = renderTable(alerts);
+        document.getElementById('catalystsTable').innerHTML = renderTable(catalysts);
+        document.getElementById('newsTable').innerHTML = renderTable(news);
+        document.getElementById('analysisTable').innerHTML = renderTable(analyses);
+        document.getElementById('summaryCards').innerHTML = renderSummary({
+          watchlist: watchlist.length,
+          portfolio: portfolio.length,
+          alerts: alerts.length,
+          catalysts: catalysts.length,
+        });
+        setStatus('已加载所有数据。');
+      } catch (err) {
+        setStatus(`加载失败：${err.message}`, true);
+      }
+    }
+
+    async function addWatchlist() {
+      try {
+        const payload = {
+          ticker: document.getElementById('watchTicker').value.trim().toUpperCase(),
+          company_name: document.getElementById('watchCompany').value.trim(),
+          exchange: document.getElementById('watchExchange').value.trim(),
+          sector: document.getElementById('watchSector').value.trim(),
+          alert_threshold_percent: Number(document.getElementById('watchThreshold').value),
+          active: true,
+        };
+        await request('/watchlist', 'POST', payload);
+        setStatus('Watchlist 添加成功。');
+        loadData();
+      } catch (err) {
+        setStatus(`添加 Watchlist 失败：${err.message}`, true);
+      }
+    }
+
+    async function addPosition() {
+      try {
+        const payload = {
+          ticker: document.getElementById('portfolioTicker').value.trim().toUpperCase(),
+          company_name: document.getElementById('portfolioName').value.trim(),
+          quantity: Number(document.getElementById('portfolioQuantity').value),
+          average_cost: Number(document.getElementById('portfolioAverageCost').value),
+          currency: document.getElementById('portfolioCurrency').value.trim(),
+          purchase_date: document.getElementById('portfolioDate').value,
+          active: true,
+        };
+        await request('/portfolio', 'POST', payload);
+        setStatus('Portfolio 仓位添加成功。');
+        loadData();
+      } catch (err) {
+        setStatus(`添加仓位失败：${err.message}`, true);
+      }
+    }
+
+    async function runMonitor() {
+      try {
+        setStatus('正在执行监控...');
+        const result = await request('/monitor/run-once', 'POST', {});
+        document.getElementById('monitorResult').textContent = JSON.stringify(result, null, 2);
+        setStatus('监控已完成。');
+        loadData();
+      } catch (err) {
+        setStatus(`监控失败：${err.message}`, true);
+      }
+    }
+
+    tabs.forEach(button => {
+      button.addEventListener('click', () => {
+        tabs.forEach(tab => tab.classList.remove('active'));
+        button.classList.add('active');
+        panels.forEach(panel => panel.classList.remove('active'));
+        document.getElementById(button.dataset.tab).classList.add('active');
+      });
+    });
+
+    document.getElementById('refreshAll').addEventListener('click', loadData);
+    document.getElementById('runMonitor').addEventListener('click', runMonitor);
+    document.getElementById('addWatchlist').addEventListener('click', addWatchlist);
+    document.getElementById('addPosition').addEventListener('click', addPosition);
+
+    window.addEventListener('load', loadData);
+  </script>
+</body>
+</html>
