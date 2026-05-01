@@ -45,6 +45,15 @@ def health() -> dict:
     return {"status": "ok"}
 
 
+@app.get("/config/models")
+def config_models() -> dict:
+    """Return the status of all LLM providers and which one is active."""
+    return {
+        "active_provider": settings.active_llm_provider,
+        "providers": settings.providers_status(),
+    }
+
+
 @app.get("/watchlist", response_model=List[WatchlistItemRead])
 def list_watchlist(session: Session = Depends(get_session)) -> List[WatchlistItemRead]:
     return session.query(WatchlistItem).filter(WatchlistItem.active == True).all()

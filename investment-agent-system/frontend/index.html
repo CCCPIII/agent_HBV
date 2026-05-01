@@ -274,6 +274,7 @@
     <button class="nav-btn" data-tab="analysis"><span class="nav-icon">🤖</span>AI 分析</button>
     <div class="nav-section">工具</div>
     <button class="nav-btn" data-tab="monitor"><span class="nav-icon">⚡</span>运行监控</button>
+    <button class="nav-btn" data-tab="models"><span class="nav-icon">🧠</span>模型配置</button>
 
     <div class="api-config">
       <label>Backend API URL</label>
@@ -293,6 +294,14 @@
         <div class="metric-card"><div class="label">AI 分析</div><div class="value" id="m-analyses">—</div></div>
         <div class="metric-card"><div class="label">新闻</div><div class="value" id="m-news">—</div></div>
         <div class="metric-card"><div class="label">催化剂</div><div class="value" id="m-catalysts">—</div></div>
+      </div>
+
+      <!-- AI provider status bar -->
+      <div class="card" style="padding:14px 20px">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <span style="font-size:.78rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.07em">AI 引擎</span>
+          <div id="providerBar" style="display:flex;gap:8px;flex-wrap:wrap"></div>
+        </div>
       </div>
 
       <div class="grid-2">
@@ -408,6 +417,50 @@
           <div class="card-title">运行结果</div>
           <pre id="monitorResult">尚未运行。点击左侧按钮开始。</pre>
         </div>
+      </div>
+    </section>
+
+    <!-- ── Models ── -->
+    <section id="models" class="panel">
+      <div class="card">
+        <div class="card-title">🧠 AI 模型配置</div>
+        <p style="font-size:.85rem;color:var(--muted);line-height:1.7;margin-bottom:20px">
+          在 <code style="background:var(--panel-alt);padding:2px 6px;border-radius:6px">.env</code>
+          文件中设置 API Key 和 <code style="background:var(--panel-alt);padding:2px 6px;border-radius:6px">ACTIVE_LLM_PROVIDER</code>
+          来切换模型。未配置 Key 时自动使用规则 fallback 分析。
+        </p>
+        <div id="modelCards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px">
+          <div class="empty">加载中...</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">📋 环境变量参考</div>
+        <pre style="font-size:.82rem;line-height:1.8;color:#a5b4fc">ACTIVE_LLM_PROVIDER=openai        # openai | deepseek | kimi | zhipu | gemini | claude
+
+# OpenAI
+OPENAI_API_KEY=sk-xxxxxxxx
+OPENAI_MODEL=gpt-4o-mini
+
+# DeepSeek
+DEEPSEEK_API_KEY=sk-xxxxxxxx
+DEEPSEEK_MODEL=deepseek-chat
+
+# KIMI (Moonshot)
+KIMI_API_KEY=sk-xxxxxxxx
+KIMI_MODEL=moonshot-v1-8k
+
+# 智谱 GLM
+ZHIPU_API_KEY=xxxxxxxx.xxxxxxxx
+ZHIPU_MODEL=glm-4-flash
+
+# Google Gemini
+GEMINI_API_KEY=AIzaxxxxxxxx
+GEMINI_MODEL=gemini-2.0-flash
+
+# Anthropic Claude
+CLAUDE_API_KEY=sk-ant-xxxxxxxx
+CLAUDE_MODEL=claude-haiku-4-5-20251001</pre>
       </div>
     </section>
 
@@ -749,10 +802,68 @@ $('runMonitor').onclick = async () => {
   }
 };
 
+// ── Model status ───────────────────────────────────────────────────────────
+const PROVIDER_META = {
+  openai:   { label: 'OpenAI',   icon: '🟢', color: '#10b981' },
+  deepseek: { label: 'DeepSeek', icon: '🔵', color: '#3b82f6' },
+  kimi:     { label: 'KIMI',     icon: '🌙', color: '#8b5cf6' },
+  zhipu:    { label: '智谱 GLM', icon: '🔴', color: '#ef4444' },
+  gemini:   { label: 'Gemini',   icon: '💎', color: '#f59e0b' },
+  claude:   { label: 'Claude',   icon: '🟠', color: '#f97316' },
+};
+
+async function loadModels() {
+  try {
+    const data = await api('/config/models');
+    const providers = data.providers || {};
+    const active = data.active_provider;
+
+    // Overview bar
+    $('providerBar').innerHTML = Object.entries(providers).map(([id, info]) => {
+      const meta = PROVIDER_META[id] || { label: id, icon: '⚪', color: '#6b7280' };
+      const isActive = info.active;
+      const ok = info.configured;
+      return `<span style="
+        display:inline-flex;align-items:center;gap:5px;
+        padding:3px 10px;border-radius:20px;font-size:.75rem;font-weight:600;
+        border:1px solid ${isActive ? meta.color + '80' : (ok ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.05)')};
+        background:${isActive ? meta.color + '22' : (ok ? 'rgba(255,255,255,0.05)' : 'transparent')};
+        color:${isActive ? meta.color : (ok ? 'var(--muted)' : '#4b5563')};
+        opacity:${ok ? 1 : 0.45};
+      ">${isActive ? '▶ ' : ''}${meta.icon} ${meta.label}${isActive ? ' (使用中)' : ''}</span>`;
+    }).join('');
+
+    // Models tab grid
+    $('modelCards').innerHTML = Object.entries(providers).map(([id, info]) => {
+      const meta = PROVIDER_META[id] || { label: id, icon: '⚪', color: '#6b7280' };
+      const isActive = info.active;
+      const ok = info.configured;
+      return `<div style="
+        border:1px solid ${isActive ? meta.color + '60' : 'var(--border)'};
+        border-radius:12px;padding:16px 18px;
+        background:${isActive ? meta.color + '10' : 'var(--panel-alt)'};
+        position:relative;
+      ">
+        ${isActive ? `<span style="position:absolute;top:12px;right:12px;font-size:.7rem;font-weight:700;
+          background:${meta.color};color:white;padding:2px 8px;border-radius:99px">使用中</span>` : ''}
+        <div style="font-size:1.4rem;margin-bottom:6px">${meta.icon}</div>
+        <div style="font-weight:700;font-size:.95rem;color:${ok ? 'white' : 'var(--muted)'}">${meta.label}</div>
+        <div style="font-size:.78rem;color:var(--muted);margin:4px 0 10px">${info.model}</div>
+        <div style="font-size:.78rem;display:flex;align-items:center;gap:6px">
+          <span style="width:7px;height:7px;border-radius:50%;background:${ok ? '#22c55e' : '#6b7280'};display:inline-block"></span>
+          ${ok ? '<span style="color:#86efac">已配置 API Key</span>' : '<span style="color:var(--muted)">未配置 API Key</span>'}
+        </div>
+      </div>`;
+    }).join('');
+  } catch {
+    $('providerBar').innerHTML = '<span style="font-size:.76rem;color:var(--muted)">无法加载模型状态</span>';
+  }
+}
+
 // ── Load all ───────────────────────────────────────────────────────────────
 async function loadAll() {
   await checkHealth();
-  await Promise.all([loadSummary(), loadWatchlist(), loadPortfolio(), loadAlerts(), loadCatalysts(), loadNews(), loadAnalysis()]);
+  await Promise.all([loadSummary(), loadModels(), loadWatchlist(), loadPortfolio(), loadAlerts(), loadCatalysts(), loadNews(), loadAnalysis()]);
 }
 
 $('refreshAll').onclick = () => loadAll();
