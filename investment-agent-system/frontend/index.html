@@ -6,534 +6,757 @@
   <title>Investment Agent System</title>
   <style>
     :root {
-      color-scheme: dark;
-      --bg: #07090f;
-      --panel: #111827;
-      --panel-alt: #1d2433;
-      --text: #e5e7eb;
-      --muted: #9ca3af;
+      --bg: #060912;
+      --panel: #0f1623;
+      --panel-alt: #161f30;
+      --card: #131b2a;
+      --text: #e2e8f0;
+      --muted: #8a9ab8;
       --accent: #6d28d9;
-      --accent-strong: #7c3aed;
-      --border: rgba(148, 163, 184, 0.25);
-      --shadow: 0 24px 80px rgba(9, 11, 23, 0.35);
+      --accent2: #4f46e5;
+      --green: #22c55e;
+      --red: #ef4444;
+      --yellow: #f59e0b;
+      --border: rgba(148,163,184,0.1);
+      --shadow: 0 8px 32px rgba(0,0,0,0.4);
+      --radius: 16px;
     }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-    * { box-sizing: border-box; }
     body {
-      margin: 0;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg);
+      color: var(--text);
       min-height: 100vh;
-      background: radial-gradient(circle at top, rgba(124, 58, 237, 0.18), transparent 32%),
-                  linear-gradient(180deg, #06080f 0%, #0d1220 100%);
-      color: var(--text);
-      font-family: Inter, Roboto, Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
     }
 
+    /* ── Header ── */
     header {
-      padding: 24px 32px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      border-bottom: 1px solid rgba(255,255,255,0.06);
-      background: rgba(7, 9, 15, 0.96);
-      position: sticky;
-      top: 0;
-      z-index: 10;
+      position: sticky; top: 0; z-index: 100;
+      padding: 0 28px;
+      height: 60px;
+      display: flex; align-items: center; justify-content: space-between;
+      background: rgba(6,9,18,0.92);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
     }
+    .logo { display: flex; align-items: center; gap: 10px; }
+    .logo-icon { font-size: 1.4rem; }
+    .logo-text { font-size: 1.1rem; font-weight: 700; letter-spacing: 0.02em; }
+    .logo-text span { color: var(--muted); font-weight: 400; font-size: 0.85rem; margin-left: 8px; }
 
-    header h1 {
-      margin: 0;
-      font-size: 1.65rem;
-      letter-spacing: 0.03em;
+    .header-right { display: flex; align-items: center; gap: 12px; }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #6b7280; }
+    .status-dot.online { background: var(--green); box-shadow: 0 0 8px var(--green); }
+    .status-dot.offline { background: var(--red); box-shadow: 0 0 8px var(--red); }
+    #statusLabel { font-size: 0.82rem; color: var(--muted); }
+
+    /* ── Layout ── */
+    .layout { display: flex; flex: 1; overflow: hidden; }
+
+    /* ── Sidebar ── */
+    nav {
+      width: 200px; flex-shrink: 0;
+      padding: 20px 12px;
+      border-right: 1px solid var(--border);
+      display: flex; flex-direction: column; gap: 4px;
+      background: var(--panel);
     }
-
-    header p {
-      margin: 4px 0 0;
-      color: var(--muted);
-      font-size: 0.95rem;
+    .nav-section { font-size: 0.7rem; color: var(--muted); text-transform: uppercase;
+      letter-spacing: 0.1em; padding: 12px 10px 4px; }
+    .nav-btn {
+      display: flex; align-items: center; gap: 9px;
+      padding: 9px 12px; border-radius: 10px;
+      border: none; background: none; color: var(--muted);
+      cursor: pointer; font-size: 0.9rem; text-align: left; width: 100%;
+      transition: all 0.15s;
     }
+    .nav-btn:hover { background: rgba(255,255,255,0.05); color: var(--text); }
+    .nav-btn.active { background: rgba(109,40,217,0.2); color: white;
+      border: 1px solid rgba(109,40,217,0.35); }
+    .nav-icon { font-size: 1rem; width: 18px; text-align: center; }
 
-    .page {
-      max-width: 1180px;
-      margin: 20px auto 40px;
-      padding: 0 20px 20px;
+    /* ── API config at bottom of sidebar ── */
+    .api-config { margin-top: auto; padding: 12px; border-top: 1px solid var(--border); }
+    .api-config label { font-size: 0.72rem; color: var(--muted); display: block; margin-bottom: 4px; }
+    .api-config input { width: 100%; background: var(--card); border: 1px solid var(--border);
+      color: var(--text); padding: 6px 10px; border-radius: 8px; font-size: 0.8rem; outline: none; }
+    .api-config input:focus { border-color: rgba(109,40,217,0.6); }
+    .btn-sm { margin-top: 6px; width: 100%; padding: 7px; border-radius: 8px;
+      background: linear-gradient(135deg,#7c3aed,#4338ca); border: none;
+      color: white; cursor: pointer; font-size: 0.82rem; font-weight: 600;
+      transition: opacity 0.15s; }
+    .btn-sm:hover { opacity: 0.88; }
+
+    /* ── Main content ── */
+    main { flex: 1; overflow-y: auto; padding: 24px 28px; }
+    .panel { display: none; flex-direction: column; gap: 20px; }
+    .panel.active { display: flex; }
+
+    /* ── Metric cards row ── */
+    .metric-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; }
+    .metric-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 18px 20px;
     }
+    .metric-card .label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase;
+      letter-spacing: 0.08em; margin-bottom: 6px; }
+    .metric-card .value { font-size: 2rem; font-weight: 700; line-height: 1; }
+    .metric-card .sub { font-size: 0.78rem; color: var(--muted); margin-top: 4px; }
 
-    .tabs {
-      display: grid;
-      grid-auto-flow: column;
-      gap: 12px;
-      overflow-x: auto;
-      padding: 16px 0;
-    }
-
-    .tab-btn {
-      border: 1px solid var(--border);
-      background: rgba(255,255,255,0.03);
-      color: var(--muted);
-      padding: 12px 18px;
-      border-radius: 999px;
-      cursor: pointer;
-      transition: all 0.2s ease;
-      white-space: nowrap;
-    }
-
-    .tab-btn.active {
-      color: white;
-      border-color: rgba(109, 40, 217, 0.5);
-      background: rgba(109, 40, 217, 0.18);
-      box-shadow: 0 10px 30px rgba(109, 40, 217, 0.22);
-    }
-
-    .panel {
-      display: none;
-      gap: 18px;
-    }
-
-    .panel.active {
-      display: grid;
-    }
-
-    .grid-2 {
-      display: grid;
-      gap: 18px;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    }
-
+    /* ── Cards ── */
     .card {
-      background: rgba(17, 24, 39, 0.95);
-      border: 1px solid rgba(255, 255, 255, 0.06);
-      border-radius: 22px;
-      padding: 22px;
-      box-shadow: var(--shadow);
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 20px 22px;
+    }
+    .card-title { font-size: 1rem; font-weight: 600; margin-bottom: 16px; color: white; }
+    .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px; }
+
+    /* ── Forms ── */
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .form-full { grid-column: 1 / -1; }
+    .field label { display: block; font-size: 0.78rem; color: var(--muted); margin-bottom: 4px; }
+    .field input, .field select {
+      width: 100%; background: var(--panel-alt); border: 1px solid var(--border);
+      color: var(--text); padding: 9px 12px; border-radius: 10px; font-size: 0.88rem; outline: none;
+      transition: border-color 0.15s;
+    }
+    .field input:focus, .field select:focus { border-color: rgba(109,40,217,0.7); }
+    .btn-primary {
+      grid-column: 1 / -1; margin-top: 4px; padding: 10px;
+      background: linear-gradient(135deg,#7c3aed,#4338ca);
+      border: none; border-radius: 10px; color: white; font-weight: 600;
+      font-size: 0.9rem; cursor: pointer; transition: opacity 0.15s, transform 0.1s;
+    }
+    .btn-primary:hover { opacity: 0.88; transform: translateY(-1px); }
+    .btn-primary:active { transform: translateY(0); }
+
+    /* ── Tables ── */
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+    th { padding: 10px 12px; text-align: left; color: var(--muted); font-weight: 600;
+      font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.06em;
+      border-bottom: 1px solid var(--border); white-space: nowrap; }
+    td { padding: 11px 12px; border-bottom: 1px solid rgba(255,255,255,0.04); vertical-align: middle; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(255,255,255,0.02); }
+    .ticker-badge {
+      display: inline-block; background: rgba(109,40,217,0.2); color: #a78bfa;
+      border: 1px solid rgba(109,40,217,0.35); padding: 2px 8px; border-radius: 6px;
+      font-weight: 600; font-size: 0.82rem;
+    }
+    .btn-del {
+      padding: 4px 10px; border-radius: 7px; border: 1px solid rgba(239,68,68,0.3);
+      background: rgba(239,68,68,0.1); color: #fca5a5; cursor: pointer; font-size: 0.8rem;
+      transition: all 0.15s;
+    }
+    .btn-del:hover { background: rgba(239,68,68,0.25); border-color: rgba(239,68,68,0.6); }
+
+    /* ── P&L colors ── */
+    .pos { color: var(--green); font-weight: 600; }
+    .neg { color: var(--red); font-weight: 600; }
+    .neu { color: var(--muted); }
+
+    /* ── Severity / direction badges ── */
+    .badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 2px 9px; border-radius: 20px; font-size: 0.78rem; font-weight: 600;
+    }
+    .badge.high   { background: rgba(239,68,68,0.15); color: #fca5a5; border: 1px solid rgba(239,68,68,0.3); }
+    .badge.medium { background: rgba(245,158,11,0.15); color: #fcd34d; border: 1px solid rgba(245,158,11,0.3); }
+    .badge.low    { background: rgba(34,197,94,0.15); color: #86efac; border: 1px solid rgba(34,197,94,0.3); }
+    .badge.positive { background: rgba(34,197,94,0.15); color: #86efac; border: 1px solid rgba(34,197,94,0.3); }
+    .badge.negative { background: rgba(239,68,68,0.15); color: #fca5a5; border: 1px solid rgba(239,68,68,0.3); }
+    .badge.neutral  { background: rgba(148,163,184,0.12); color: var(--muted); border: 1px solid var(--border); }
+    .badge.unknown  { background: rgba(148,163,184,0.12); color: var(--muted); border: 1px solid var(--border); }
+
+    /* ── Alert cards ── */
+    .alert-card {
+      border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px;
+      background: var(--panel-alt); margin-bottom: 10px;
+    }
+    .alert-header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+    .alert-title { font-weight: 600; font-size: 0.92rem; flex: 1; min-width: 0; }
+    .alert-msg { font-size: 0.84rem; color: var(--muted); line-height: 1.5; }
+    .alert-footer { display: flex; gap: 12px; margin-top: 8px; flex-wrap: wrap; }
+    .alert-footer span { font-size: 0.76rem; color: var(--muted); }
+
+    /* ── Analysis cards ── */
+    .analysis-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+    .analysis-card {
+      border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px;
+      background: var(--panel-alt);
+    }
+    .analysis-card .summary { font-size: 0.87rem; margin: 8px 0; line-height: 1.5; }
+    .analysis-card .reasoning { font-size: 0.8rem; color: var(--muted); line-height: 1.5; }
+    .analysis-meta { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; align-items: center; }
+    .conf-bar-wrap { flex: 1; min-width: 80px; }
+    .conf-bar-bg { height: 4px; background: rgba(255,255,255,0.08); border-radius: 4px; overflow: hidden; }
+    .conf-bar { height: 4px; border-radius: 4px; background: linear-gradient(90deg,#7c3aed,#06b6d4); }
+
+    /* ── News ── */
+    .news-item {
+      border-bottom: 1px solid var(--border); padding: 14px 0;
+      display: flex; gap: 14px; align-items: flex-start;
+    }
+    .news-item:last-child { border-bottom: none; }
+    .news-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-top: 5px; flex-shrink: 0; }
+    .news-body { flex: 1; min-width: 0; }
+    .news-title { font-weight: 600; font-size: 0.9rem; margin-bottom: 4px; }
+    .news-summary { font-size: 0.82rem; color: var(--muted); line-height: 1.5; margin-bottom: 6px; }
+    .news-meta { display: flex; gap: 10px; flex-wrap: wrap; }
+    .news-meta span { font-size: 0.74rem; color: var(--muted); }
+    a { color: #a78bfa; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* ── Portfolio summary metrics ── */
+    .pnl-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 18px; }
+    .pnl-card { background: var(--panel-alt); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+    .pnl-card .label { font-size: 0.73rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.07em; }
+    .pnl-card .val { font-size: 1.4rem; font-weight: 700; margin-top: 2px; }
+
+    /* ── Empty state ── */
+    .empty { text-align: center; color: var(--muted); padding: 36px 20px; font-size: 0.9rem; }
+
+    /* ── Toast ── */
+    #toast {
+      position: fixed; bottom: 24px; right: 24px; z-index: 999;
+      padding: 12px 20px; border-radius: 12px; font-size: 0.88rem; font-weight: 500;
+      opacity: 0; transform: translateY(8px); transition: all 0.25s; pointer-events: none;
+    }
+    #toast.show { opacity: 1; transform: translateY(0); }
+    #toast.success { background: rgba(34,197,94,0.2); border: 1px solid rgba(34,197,94,0.4); color: #86efac; }
+    #toast.error   { background: rgba(239,68,68,0.2); border: 1px solid rgba(239,68,68,0.4); color: #fca5a5; }
+
+    /* ── Monitor ── */
+    pre#monitorResult {
+      background: var(--panel-alt); border: 1px solid var(--border); border-radius: 12px;
+      padding: 16px; font-size: 0.83rem; color: var(--muted); overflow-x: auto;
+      max-height: 360px; white-space: pre-wrap; word-break: break-all; line-height: 1.6;
     }
 
-    .card h2 {
-      margin: 0 0 18px;
-      font-size: 1.2rem;
-      color: white;
-    }
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.2); border-radius: 99px; }
 
-    label {
-      display: block;
-      margin-bottom: 8px;
-      color: var(--muted);
-      font-size: 0.94rem;
-    }
-
-    input, select, button, textarea {
-      width: 100%;
-      border-radius: 14px;
-      background: #111827;
-      color: var(--text);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      padding: 12px 14px;
-      font-size: 0.95rem;
-      outline: none;
-      transition: border-color 0.2s ease, background 0.2s ease;
-    }
-
-    input:focus, select:focus, textarea:focus {
-      border-color: rgba(109, 40, 217, 0.8);
-      background: #141b2e;
-    }
-
-    button {
-      margin-top: 14px;
-      border: none;
-      background: linear-gradient(135deg, #7c3aed, #4338ca);
-      color: white;
-      cursor: pointer;
-      font-weight: 600;
-      transition: transform 0.15s ease, box-shadow 0.2s ease;
-    }
-
-    button:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 14px 35px rgba(124, 58, 237, 0.28);
-    }
-
-    .status {
-      margin-top: 16px;
-      background: rgba(255, 255, 255, 0.04);
-      border: 1px solid rgba(255,255,255,0.08);
-      border-radius: 16px;
-      padding: 16px;
-      color: var(--text);
-    }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 14px;
-      color: var(--text);
-      font-size: 0.95rem;
-    }
-
-    th, td {
-      border: 1px solid rgba(255,255,255,0.08);
-      padding: 12px 10px;
-      text-align: left;
-    }
-
-    th {
-      background: rgba(255,255,255,0.04);
-      color: var(--muted);
-      font-weight: 600;
-    }
-
-    td {
-      background: rgba(255,255,255,0.02);
-    }
-
-    pre {
-      background: rgba(255,255,255,0.04);
-      border: 1px solid rgba(255,255,255,0.08);
-      padding: 18px;
-      border-radius: 16px;
-      overflow-x: auto;
-      max-height: 320px;
-      color: var(--text);
-    }
-
-    .section-title {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 12px;
-      flex-wrap: wrap;
-    }
-
-    .section-title span {
-      color: var(--muted);
-      font-size: 0.95rem;
-    }
-
-    .notice {
-      color: #c7d2fe;
-      font-size: 0.95rem;
-      margin-top: 8px;
-    }
-
-    .empty-state {
-      padding: 24px;
-      border-radius: 18px;
-      border: 1px dashed rgba(255,255,255,0.12);
-      text-align: center;
-      color: var(--muted);
-    }
-
-    @media (max-width: 768px) {
-      .tabs { grid-auto-flow: row; }
+    @media (max-width: 640px) {
+      nav { display: none; }
+      .form-grid { grid-template-columns: 1fr; }
     }
   </style>
 </head>
 <body>
-  <header>
-    <div>
-      <h1>Investment Agent System</h1>
-      <p>黑色主题 | 标签切换式静态仪表盘</p>
-    </div>
-    <div class="section-title">
-      <span>支持 Watchlist、Portfolio、Alerts、Catalysts、News、Analysis、Monitor</span>
-    </div>
-  </header>
 
-  <div class="page">
-    <div class="tabs">
-      <button class="tab-btn active" data-tab="overview">概览</button>
-      <button class="tab-btn" data-tab="watchlist">Watchlist</button>
-      <button class="tab-btn" data-tab="portfolio">Portfolio</button>
-      <button class="tab-btn" data-tab="alerts">Alerts</button>
-      <button class="tab-btn" data-tab="catalysts">Catalysts</button>
-      <button class="tab-btn" data-tab="news">News</button>
-      <button class="tab-btn" data-tab="analysis">Analysis</button>
-      <button class="tab-btn" data-tab="monitor">Monitor</button>
-    </div>
+<header>
+  <div class="logo">
+    <span class="logo-icon">📈</span>
+    <span class="logo-text">Investment Agent<span>智能投资监控系统</span></span>
+  </div>
+  <div class="header-right">
+    <div class="status-dot" id="statusDot"></div>
+    <span id="statusLabel">检测中...</span>
+  </div>
+</header>
 
+<div class="layout">
+  <nav>
+    <div class="nav-section">视图</div>
+    <button class="nav-btn active" data-tab="overview"><span class="nav-icon">🏠</span>概览</button>
+    <button class="nav-btn" data-tab="watchlist"><span class="nav-icon">👁️</span>自选股</button>
+    <button class="nav-btn" data-tab="portfolio"><span class="nav-icon">💼</span>持仓</button>
+    <button class="nav-btn" data-tab="alerts"><span class="nav-icon">🔔</span>预警</button>
+    <div class="nav-section">数据</div>
+    <button class="nav-btn" data-tab="catalysts"><span class="nav-icon">📅</span>催化剂</button>
+    <button class="nav-btn" data-tab="news"><span class="nav-icon">📰</span>新闻</button>
+    <button class="nav-btn" data-tab="analysis"><span class="nav-icon">🤖</span>AI 分析</button>
+    <div class="nav-section">工具</div>
+    <button class="nav-btn" data-tab="monitor"><span class="nav-icon">⚡</span>运行监控</button>
+
+    <div class="api-config">
+      <label>Backend API URL</label>
+      <input id="apiUrl" type="text" value="http://localhost:8000" />
+      <button class="btn-sm" id="refreshAll">刷新数据</button>
+    </div>
+  </nav>
+
+  <main>
+
+    <!-- ── Overview ── -->
     <section id="overview" class="panel active">
+      <div class="metric-row" id="metricRow">
+        <div class="metric-card"><div class="label">自选股</div><div class="value" id="m-watchlist">—</div></div>
+        <div class="metric-card"><div class="label">持仓</div><div class="value" id="m-portfolio">—</div></div>
+        <div class="metric-card"><div class="label">预警</div><div class="value" id="m-alerts">—</div><div class="sub" id="m-unread"></div></div>
+        <div class="metric-card"><div class="label">AI 分析</div><div class="value" id="m-analyses">—</div></div>
+        <div class="metric-card"><div class="label">新闻</div><div class="value" id="m-news">—</div></div>
+        <div class="metric-card"><div class="label">催化剂</div><div class="value" id="m-catalysts">—</div></div>
+      </div>
+
       <div class="grid-2">
         <div class="card">
-          <div class="section-title">
-            <div>
-              <h2>后端设置</h2>
-              <p class="notice">请输入 FastAPI 后端地址并刷新数据。</p>
-            </div>
-          </div>
-          <label for="apiUrl">API URL</label>
-          <input id="apiUrl" type="text" value="http://localhost:8000" />
-          <button id="refreshAll">刷新全部数据</button>
-          <div id="status" class="status">准备就绪。</div>
+          <div class="card-title">最近预警</div>
+          <div id="recentAlerts"><div class="empty">暂无数据</div></div>
         </div>
-
         <div class="card">
-          <div class="section-title">
-            <div>
-              <h2>统计概览</h2>
-              <span>快速查看当前数据状态</span>
-            </div>
-          </div>
-          <div id="summaryCards" class="grid-2"></div>
+          <div class="card-title">最近 AI 分析</div>
+          <div id="recentAnalyses"><div class="empty">暂无数据</div></div>
         </div>
       </div>
     </section>
 
+    <!-- ── Watchlist ── -->
     <section id="watchlist" class="panel">
       <div class="grid-2">
         <div class="card">
-          <h2>添加监控标的</h2>
-          <label for="watchTicker">Ticker</label>
-          <input id="watchTicker" type="text" placeholder="AAPL" />
-          <label for="watchCompany">Company Name</label>
-          <input id="watchCompany" type="text" placeholder="Apple Inc." />
-          <label for="watchExchange">Exchange</label>
-          <input id="watchExchange" type="text" placeholder="NASDAQ" />
-          <label for="watchSector">Sector</label>
-          <input id="watchSector" type="text" placeholder="Technology" />
-          <label for="watchThreshold">Alert Threshold %</label>
-          <input id="watchThreshold" type="number" value="5" />
-          <button id="addWatchlist">添加到 Watchlist</button>
+          <div class="card-title">添加监控标的</div>
+          <div class="form-grid">
+            <div class="field"><label>Ticker *</label><input id="wTicker" placeholder="AAPL"></div>
+            <div class="field"><label>公司名称 *</label><input id="wName" placeholder="Apple Inc."></div>
+            <div class="field"><label>交易所</label><input id="wExchange" placeholder="NASDAQ"></div>
+            <div class="field"><label>板块</label><input id="wSector" placeholder="Technology"></div>
+            <div class="field form-full"><label>预警阈值 %</label><input id="wThreshold" type="number" value="5" min="0.1" step="0.5"></div>
+            <button class="btn-primary" id="addWatchlist">添加</button>
+          </div>
         </div>
         <div class="card">
-          <h2>当前 Watchlist</h2>
-          <div id="watchlistTable"></div>
+          <div class="card-title">当前自选股</div>
+          <div class="table-wrap" id="watchlistTable"><div class="empty">暂无数据</div></div>
         </div>
       </div>
     </section>
 
+    <!-- ── Portfolio ── -->
     <section id="portfolio" class="panel">
       <div class="grid-2">
         <div class="card">
-          <h2>添加仓位</h2>
-          <label for="portfolioTicker">Ticker</label>
-          <input id="portfolioTicker" type="text" placeholder="AAPL" />
-          <label for="portfolioName">Company Name</label>
-          <input id="portfolioName" type="text" placeholder="Apple Inc." />
-          <label for="portfolioQuantity">Quantity</label>
-          <input id="portfolioQuantity" type="number" value="0" />
-          <label for="portfolioAverageCost">Average Cost</label>
-          <input id="portfolioAverageCost" type="number" value="0" step="0.01" />
-          <label for="portfolioCurrency">Currency</label>
-          <input id="portfolioCurrency" type="text" value="USD" />
-          <label for="portfolioDate">Purchase Date</label>
-          <input id="portfolioDate" type="date" />
-          <button id="addPosition">添加到 Portfolio</button>
+          <div class="card-title">添加持仓</div>
+          <div class="form-grid">
+            <div class="field"><label>Ticker *</label><input id="pTicker" placeholder="AAPL"></div>
+            <div class="field"><label>公司名称 *</label><input id="pName" placeholder="Apple Inc."></div>
+            <div class="field"><label>数量</label><input id="pQty" type="number" value="0" min="0"></div>
+            <div class="field"><label>成本价</label><input id="pCost" type="number" value="0" step="0.01"></div>
+            <div class="field"><label>货币</label><input id="pCurrency" value="USD"></div>
+            <div class="field"><label>买入日期</label><input id="pDate" type="date"></div>
+            <button class="btn-primary" id="addPosition">添加</button>
+          </div>
         </div>
         <div class="card">
-          <h2>当前 Portfolio</h2>
-          <div id="portfolioTable"></div>
+          <div class="card-title">持仓汇总</div>
+          <div class="pnl-row">
+            <div class="pnl-card"><div class="label">总成本</div><div class="val" id="totalCost">—</div></div>
+            <div class="pnl-card"><div class="label">当前市值</div><div class="val" id="totalValue">—</div></div>
+            <div class="pnl-card"><div class="label">总盈亏</div><div class="val" id="totalPnl">—</div></div>
+          </div>
+          <div class="table-wrap" id="portfolioTable"><div class="empty">暂无数据</div></div>
         </div>
       </div>
     </section>
 
+    <!-- ── Alerts ── -->
     <section id="alerts" class="panel">
       <div class="card">
-        <div class="section-title">
-          <div>
-            <h2>Alerts</h2>
-            <span>显示检测到的价格告警与事件提醒</span>
+        <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;">
+          <span>价格 & 事件预警</span>
+          <div style="display:flex;gap:8px;">
+            <label class="badge high" style="cursor:pointer;"><input type="checkbox" id="fHigh" checked hidden>🔴 高</label>
+            <label class="badge medium" style="cursor:pointer;"><input type="checkbox" id="fMed" checked hidden>🟡 中</label>
+            <label class="badge low" style="cursor:pointer;"><input type="checkbox" id="fLow" checked hidden>🟢 低</label>
           </div>
         </div>
-        <div id="alertsTable"></div>
+        <div id="alertsList"><div class="empty">暂无数据</div></div>
       </div>
     </section>
 
+    <!-- ── Catalysts ── -->
     <section id="catalysts" class="panel">
       <div class="card">
-        <div class="section-title">
-          <div>
-            <h2>Catalysts</h2>
-            <span>显示当前催化剂日历</span>
-          </div>
-        </div>
-        <div id="catalystsTable"></div>
+        <div class="card-title">催化剂日历</div>
+        <div class="table-wrap" id="catalystsTable"><div class="empty">暂无数据</div></div>
       </div>
     </section>
 
+    <!-- ── News ── -->
     <section id="news" class="panel">
       <div class="card">
-        <div class="section-title">
-          <div>
-            <h2>News</h2>
-            <span>最新新闻事件</span>
-          </div>
-        </div>
-        <div id="newsTable"></div>
+        <div class="card-title">最新新闻</div>
+        <div id="newsList"><div class="empty">暂无数据</div></div>
       </div>
     </section>
 
+    <!-- ── Analysis ── -->
     <section id="analysis" class="panel">
       <div class="card">
-        <div class="section-title">
-          <div>
-            <h2>Analysis</h2>
-            <span>智能分析和代理输出</span>
-          </div>
-        </div>
-        <div id="analysisTable"></div>
+        <div class="card-title">AI 影响分析</div>
+        <div class="analysis-grid" id="analysisGrid"><div class="empty" style="grid-column:1/-1">暂无数据</div></div>
       </div>
     </section>
 
+    <!-- ── Monitor ── -->
     <section id="monitor" class="panel">
       <div class="grid-2">
         <div class="card">
-          <h2>监控运行</h2>
-          <button id="runMonitor">运行一次监控</button>
-          <div class="notice">运行后会刷新 Alert、Catalysts、News、Analysis 数据。</div>
+          <div class="card-title">运行监控周期</div>
+          <p style="font-size:.87rem;color:var(--muted);line-height:1.6;margin-bottom:14px;">
+            触发一次完整监控：拉取实时行情 → 检测价格异动 → AI 影响分析 → 生成预警 → 推送通知。
+          </p>
+          <button class="btn-primary" id="runMonitor" style="display:block;width:100%;grid-column:auto">⚡ 立即运行</button>
         </div>
         <div class="card">
-          <h2>运行结果</h2>
-          <pre id="monitorResult">尚未运行</pre>
+          <div class="card-title">运行结果</div>
+          <pre id="monitorResult">尚未运行。点击左侧按钮开始。</pre>
         </div>
       </div>
     </section>
-  </div>
 
-  <script>
-    const statusEl = document.getElementById('status');
-    const apiUrlInput = document.getElementById('apiUrl');
-    const panels = document.querySelectorAll('.panel');
-    const tabs = document.querySelectorAll('.tab-btn');
+  </main>
+</div>
 
-    function setStatus(text, isError = false) {
-      statusEl.textContent = text;
-      statusEl.style.background = isError ? 'rgba(220, 38, 38, 0.18)' : 'rgba(255,255,255,0.06)';
-      statusEl.style.color = isError ? '#fecaca' : '#e5e7eb';
-    }
+<div id="toast"></div>
 
-    function apiUrl() {
-      return apiUrlInput.value.trim().replace(/\/$/, '');
-    }
+<script>
+const $ = id => document.getElementById(id);
+const API = () => $('apiUrl').value.trim().replace(/\/$/, '');
 
-    async function request(path, method = 'GET', body = null) {
-      const url = `${apiUrl()}${path}`;
-      const options = { method, headers: { 'Content-Type': 'application/json' } };
-      if (body) options.body = JSON.stringify(body);
-      const res = await fetch(url, options);
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`${res.status} ${res.statusText}: ${text}`);
-      }
-      return res.json();
-    }
+// ── Toast ──────────────────────────────────────────────────────────────────
+function toast(msg, type = 'success') {
+  const el = $('toast');
+  el.textContent = msg;
+  el.className = `show ${type}`;
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.className = ''; }, 3000);
+}
 
-    function renderTable(data) {
-      if (!Array.isArray(data) || data.length === 0) {
-        return '<div class="empty-state">没有数据</div>';
-      }
-      const keys = Object.keys(data[0]);
-      const header = '<tr>' + keys.map(k => `<th>${k}</th>`).join('') + '</tr>';
-      const rows = data.map(item => '<tr>' + keys.map(key => `<td>${item[key] ?? ''}</td>`).join('') + '</tr>').join('');
-      return `<div style="overflow-x:auto;"><table>${header}${rows}</table></div>`;
-    }
+// ── Fetch helpers ──────────────────────────────────────────────────────────
+async function api(path, method = 'GET', body = null) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(`${API()}${path}`, opts);
+  if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+  return res.json();
+}
 
-    function renderSummary(summary) {
-      const cards = [
-        { title: 'Watchlist', value: summary.watchlist ?? 0 },
-        { title: 'Portfolio', value: summary.portfolio ?? 0 },
-        { title: 'Alerts', value: summary.alerts ?? 0 },
-        { title: 'Catalysts', value: summary.catalysts ?? 0 },
-      ];
-      return cards.map(card => `
-        <div class="card" style="padding:18px; background: rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08);">
-          <h2 style="margin:0 0 8px; font-size:1rem; color:#a5b4fc;">${card.title}</h2>
-          <div style="font-size:2rem; font-weight:700;">${card.value}</div>
-        </div>`
-      ).join('');
-    }
+// ── Health check ───────────────────────────────────────────────────────────
+async function checkHealth() {
+  try {
+    await api('/health');
+    $('statusDot').className = 'status-dot online';
+    $('statusLabel').textContent = '已连接';
+  } catch {
+    $('statusDot').className = 'status-dot offline';
+    $('statusLabel').textContent = '离线';
+  }
+}
 
-    async function loadData() {
-      try {
-        setStatus('加载数据...');
-        const [watchlist, portfolio, alerts, catalysts, news, analyses] = await Promise.all([
-          request('/watchlist'),
-          request('/portfolio'),
-          request('/alerts'),
-          request('/catalysts'),
-          request('/news'),
-          request('/analyses'),
-        ]);
-        document.getElementById('watchlistTable').innerHTML = renderTable(watchlist);
-        document.getElementById('portfolioTable').innerHTML = renderTable(portfolio);
-        document.getElementById('alertsTable').innerHTML = renderTable(alerts);
-        document.getElementById('catalystsTable').innerHTML = renderTable(catalysts);
-        document.getElementById('newsTable').innerHTML = renderTable(news);
-        document.getElementById('analysisTable').innerHTML = renderTable(analyses);
-        document.getElementById('summaryCards').innerHTML = renderSummary({
-          watchlist: watchlist.length,
-          portfolio: portfolio.length,
-          alerts: alerts.length,
-          catalysts: catalysts.length,
-        });
-        setStatus('已加载所有数据。');
-      } catch (err) {
-        setStatus(`加载失败：${err.message}`, true);
-      }
-    }
+// ── Format helpers ─────────────────────────────────────────────────────────
+const fmtNum = (v, dec = 2) => v == null ? '—' : Number(v).toLocaleString('zh-CN', {minimumFractionDigits: dec, maximumFractionDigits: dec});
+function fmtPct(v) {
+  if (v == null) return '<span class="neu">—</span>';
+  const cls = v >= 0 ? 'pos' : 'neg';
+  return `<span class="${cls}">${v >= 0 ? '+' : ''}${Number(v).toFixed(2)}%</span>`;
+}
+function fmtPnl(v, currency = '') {
+  if (v == null) return '<span class="neu">—</span>';
+  const cls = v >= 0 ? 'pos' : 'neg';
+  return `<span class="${cls}">${v >= 0 ? '+' : ''}${fmtNum(v)} ${currency}</span>`;
+}
+function severityBadge(s) {
+  const icons = { high: '🔴', medium: '🟡', low: '🟢' };
+  return `<span class="badge ${s}">${icons[s] || '⚪'} ${s}</span>`;
+}
+function directionBadge(d) {
+  const icons = { positive: '▲', negative: '▼', neutral: '●', unknown: '?' };
+  return `<span class="badge ${d}">${icons[d] || '?'} ${d}</span>`;
+}
+const shortDate = s => s ? String(s).slice(0, 10) : '—';
 
-    async function addWatchlist() {
-      try {
-        const payload = {
-          ticker: document.getElementById('watchTicker').value.trim().toUpperCase(),
-          company_name: document.getElementById('watchCompany').value.trim(),
-          exchange: document.getElementById('watchExchange').value.trim(),
-          sector: document.getElementById('watchSector').value.trim(),
-          alert_threshold_percent: Number(document.getElementById('watchThreshold').value),
-          active: true,
-        };
-        await request('/watchlist', 'POST', payload);
-        setStatus('Watchlist 添加成功。');
-        loadData();
-      } catch (err) {
-        setStatus(`添加 Watchlist 失败：${err.message}`, true);
-      }
-    }
+// ── Nav ────────────────────────────────────────────────────────────────────
+document.querySelectorAll('.nav-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    $(btn.dataset.tab).classList.add('active');
+  });
+});
 
-    async function addPosition() {
-      try {
-        const payload = {
-          ticker: document.getElementById('portfolioTicker').value.trim().toUpperCase(),
-          company_name: document.getElementById('portfolioName').value.trim(),
-          quantity: Number(document.getElementById('portfolioQuantity').value),
-          average_cost: Number(document.getElementById('portfolioAverageCost').value),
-          currency: document.getElementById('portfolioCurrency').value.trim(),
-          purchase_date: document.getElementById('portfolioDate').value,
-          active: true,
-        };
-        await request('/portfolio', 'POST', payload);
-        setStatus('Portfolio 仓位添加成功。');
-        loadData();
-      } catch (err) {
-        setStatus(`添加仓位失败：${err.message}`, true);
-      }
-    }
+// ── Dashboard summary ──────────────────────────────────────────────────────
+async function loadSummary() {
+  try {
+    const s = await api('/dashboard/summary');
+    $('m-watchlist').textContent = s.watchlist_count ?? 0;
+    $('m-portfolio').textContent = s.portfolio_count ?? 0;
+    $('m-alerts').textContent = s.alerts_count ?? 0;
+    $('m-unread').textContent = s.unread_alerts ? `${s.unread_alerts} 未读` : '';
+    $('m-analyses').textContent = s.analyses_count ?? 0;
+    $('m-news').textContent = s.news_count ?? 0;
+    $('m-catalysts').textContent = s.catalysts_count ?? 0;
+  } catch {}
+}
 
-    async function runMonitor() {
-      try {
-        setStatus('正在执行监控...');
-        const result = await request('/monitor/run-once', 'POST', {});
-        document.getElementById('monitorResult').textContent = JSON.stringify(result, null, 2);
-        setStatus('监控已完成。');
-        loadData();
-      } catch (err) {
-        setStatus(`监控失败：${err.message}`, true);
-      }
-    }
+// ── Watchlist ──────────────────────────────────────────────────────────────
+async function loadWatchlist() {
+  try {
+    const items = await api('/watchlist');
+    if (!items.length) { $('watchlistTable').innerHTML = '<div class="empty">暂无自选股</div>'; return; }
+    $('watchlistTable').innerHTML = `<table>
+      <thead><tr><th>代码</th><th>公司</th><th>交易所</th><th>板块</th><th>阈值%</th><th>添加时间</th><th></th></tr></thead>
+      <tbody>${items.map(i => `<tr>
+        <td><span class="ticker-badge">${i.ticker}</span></td>
+        <td>${i.company_name}</td>
+        <td>${i.exchange || '—'}</td>
+        <td>${i.sector || '—'}</td>
+        <td>${i.alert_threshold_percent ?? 5}%</td>
+        <td>${shortDate(i.created_at)}</td>
+        <td><button class="btn-del" onclick="delWatchlist(${i.id})">✕</button></td>
+      </tr>`).join('')}</tbody>
+    </table>`;
+    // recent alerts on overview
+    loadRecentAlerts();
+  } catch (e) { toast('加载自选股失败: ' + e.message, 'error'); }
+}
 
-    tabs.forEach(button => {
-      button.addEventListener('click', () => {
-        tabs.forEach(tab => tab.classList.remove('active'));
-        button.classList.add('active');
-        panels.forEach(panel => panel.classList.remove('active'));
-        document.getElementById(button.dataset.tab).classList.add('active');
-      });
+async function delWatchlist(id) {
+  try { await api(`/watchlist/${id}`, 'DELETE'); toast('已删除'); loadWatchlist(); loadSummary(); }
+  catch (e) { toast('删除失败: ' + e.message, 'error'); }
+}
+
+$('addWatchlist').onclick = async () => {
+  const ticker = $('wTicker').value.trim().toUpperCase();
+  const company = $('wName').value.trim();
+  if (!ticker || !company) { toast('代码和公司名称不能为空', 'error'); return; }
+  try {
+    await api('/watchlist', 'POST', {
+      ticker, company_name: company,
+      exchange: $('wExchange').value.trim(),
+      sector: $('wSector').value.trim(),
+      alert_threshold_percent: Number($('wThreshold').value),
+      active: true
     });
+    toast('已添加到自选股');
+    $('wTicker').value = ''; $('wName').value = '';
+    loadWatchlist(); loadSummary();
+  } catch (e) { toast('添加失败: ' + e.message, 'error'); }
+};
 
-    document.getElementById('refreshAll').addEventListener('click', loadData);
-    document.getElementById('runMonitor').addEventListener('click', runMonitor);
-    document.getElementById('addWatchlist').addEventListener('click', addWatchlist);
-    document.getElementById('addPosition').addEventListener('click', addPosition);
+// ── Portfolio ──────────────────────────────────────────────────────────────
+async function loadPortfolio() {
+  try {
+    const positions = await api('/portfolio/summary');
+    if (!positions.length) {
+      $('portfolioTable').innerHTML = '<div class="empty">暂无持仓</div>';
+      $('totalCost').textContent = '—'; $('totalValue').textContent = '—'; $('totalPnl').textContent = '—';
+      return;
+    }
+    const totalCost = positions.reduce((s, p) => s + (p.cost_basis || 0), 0);
+    const totalValue = positions.reduce((s, p) => s + (p.current_value || 0), 0);
+    const totalPnl = totalValue - totalCost;
+    $('totalCost').textContent = fmtNum(totalCost);
+    $('totalValue').innerHTML = fmtNum(totalValue);
+    const pnlPct = totalCost ? (totalPnl / totalCost * 100) : 0;
+    $('totalPnl').innerHTML = `<span class="${totalPnl >= 0 ? 'pos' : 'neg'}">${totalPnl >= 0 ? '+' : ''}${fmtNum(totalPnl)} (${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%)</span>`;
 
-    window.addEventListener('load', loadData);
-  </script>
+    $('portfolioTable').innerHTML = `<table>
+      <thead><tr><th>代码</th><th>公司</th><th>数量</th><th>成本价</th><th>实时价</th><th>成本基础</th><th>市值</th><th>盈亏</th><th>盈亏%</th><th>当日%</th><th></th></tr></thead>
+      <tbody>${positions.map(p => `<tr>
+        <td><span class="ticker-badge">${p.ticker}</span></td>
+        <td style="max-width:140px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.company_name}</td>
+        <td>${p.quantity}</td>
+        <td>${fmtNum(p.average_cost)}</td>
+        <td>${p.current_price != null ? fmtNum(p.current_price) : '<span class="neu">—</span>'}</td>
+        <td>${fmtNum(p.cost_basis)}</td>
+        <td>${p.current_value != null ? fmtNum(p.current_value) : '<span class="neu">—</span>'}</td>
+        <td>${fmtPnl(p.pnl, p.currency)}</td>
+        <td>${fmtPct(p.pnl_pct)}</td>
+        <td>${fmtPct(p.day_change_pct)}</td>
+        <td><button class="btn-del" onclick="delPosition(${p.id})">✕</button></td>
+      </tr>`).join('')}</tbody>
+    </table>`;
+  } catch (e) { toast('加载持仓失败: ' + e.message, 'error'); }
+}
+
+async function delPosition(id) {
+  try { await api(`/portfolio/${id}`, 'DELETE'); toast('已删除持仓'); loadPortfolio(); loadSummary(); }
+  catch (e) { toast('删除失败: ' + e.message, 'error'); }
+}
+
+$('addPosition').onclick = async () => {
+  const ticker = $('pTicker').value.trim().toUpperCase();
+  const company = $('pName').value.trim();
+  if (!ticker || !company) { toast('代码和公司名称不能为空', 'error'); return; }
+  try {
+    await api('/portfolio', 'POST', {
+      ticker, company_name: company,
+      quantity: Number($('pQty').value),
+      average_cost: Number($('pCost').value),
+      currency: $('pCurrency').value.trim() || 'USD',
+      purchase_date: $('pDate').value || null,
+      active: true
+    });
+    toast('已添加持仓');
+    $('pTicker').value = ''; $('pName').value = '';
+    loadPortfolio(); loadSummary();
+  } catch (e) { toast('添加失败: ' + e.message, 'error'); }
+};
+
+// ── Alerts ─────────────────────────────────────────────────────────────────
+let allAlerts = [];
+function renderAlerts() {
+  const showHigh = $('fHigh').checked;
+  const showMed = $('fMed').checked;
+  const showLow = $('fLow').checked;
+  const filtered = allAlerts.filter(a => {
+    const s = a.severity;
+    return (s === 'high' && showHigh) || (s === 'medium' && showMed) || (s === 'low' && showLow);
+  });
+  if (!filtered.length) { $('alertsList').innerHTML = '<div class="empty">没有匹配的预警</div>'; return; }
+  $('alertsList').innerHTML = filtered.map(a => `
+    <div class="alert-card">
+      <div class="alert-header">
+        ${severityBadge(a.severity)}
+        ${a.ticker ? `<span class="ticker-badge">${a.ticker}</span>` : ''}
+        <span class="alert-title">${a.title}</span>
+        <span style="font-size:.76rem;color:var(--muted)">${shortDate(a.created_at)}</span>
+      </div>
+      <div class="alert-msg">${a.message}</div>
+      <div class="alert-footer">
+        <span>类型: <b>${a.alert_type}</b></span>
+        <span>发送: ${a.sent ? '✅' : '❌'}</span>
+        ${a.source_url ? `<a href="${a.source_url}" target="_blank">来源 ↗</a>` : ''}
+      </div>
+    </div>`).join('');
+}
+
+async function loadAlerts() {
+  try {
+    allAlerts = await api('/alerts');
+    renderAlerts();
+    loadRecentAlerts();
+  } catch (e) { toast('加载预警失败: ' + e.message, 'error'); }
+}
+
+function loadRecentAlerts() {
+  const recent = allAlerts.slice(0, 5);
+  if (!recent.length) { $('recentAlerts').innerHTML = '<div class="empty">暂无预警</div>'; return; }
+  $('recentAlerts').innerHTML = recent.map(a => `
+    <div class="alert-card" style="margin-bottom:8px">
+      <div class="alert-header">
+        ${severityBadge(a.severity)}
+        ${a.ticker ? `<span class="ticker-badge">${a.ticker}</span>` : ''}
+        <span class="alert-title">${a.title}</span>
+      </div>
+      <div class="alert-msg" style="font-size:.82rem">${a.message.slice(0, 120)}${a.message.length > 120 ? '…' : ''}</div>
+    </div>`).join('');
+}
+
+['fHigh', 'fMed', 'fLow'].forEach(id => $(id).addEventListener('change', renderAlerts));
+
+// ── Catalysts ──────────────────────────────────────────────────────────────
+async function loadCatalysts() {
+  try {
+    const items = await api('/catalysts');
+    if (!items.length) { $('catalystsTable').innerHTML = '<div class="empty">暂无催化剂</div>'; return; }
+    $('catalystsTable').innerHTML = `<table>
+      <thead><tr><th>代码</th><th>标题</th><th>类型</th><th>日期</th><th>置信度</th></tr></thead>
+      <tbody>${items.map(c => `<tr>
+        <td><span class="ticker-badge">${c.ticker}</span></td>
+        <td>${c.title}</td>
+        <td>${c.catalyst_type}</td>
+        <td>${shortDate(c.event_date)}</td>
+        <td>${(c.confidence * 100).toFixed(0)}%</td>
+      </tr>`).join('')}</tbody>
+    </table>`;
+  } catch (e) { toast('加载催化剂失败: ' + e.message, 'error'); }
+}
+
+// ── News ───────────────────────────────────────────────────────────────────
+async function loadNews() {
+  try {
+    const items = await api('/news');
+    if (!items.length) { $('newsList').innerHTML = '<div class="empty">暂无新闻</div>'; return; }
+    $('newsList').innerHTML = items.slice(0, 20).map(n => `
+      <div class="news-item">
+        <div class="news-dot"></div>
+        <div class="news-body">
+          <div class="news-title">${n.ticker ? `<span class="ticker-badge" style="margin-right:6px">${n.ticker}</span>` : ''}${n.title}</div>
+          <div class="news-summary">${n.summary || ''}</div>
+          <div class="news-meta">
+            <span>📰 ${n.source}</span>
+            <span>🕐 ${shortDate(n.published_at)}</span>
+            ${n.source_url ? `<a href="${n.source_url}" target="_blank">阅读全文 ↗</a>` : ''}
+          </div>
+        </div>
+      </div>`).join('');
+  } catch (e) { toast('加载新闻失败: ' + e.message, 'error'); }
+}
+
+// ── Analysis ───────────────────────────────────────────────────────────────
+async function loadAnalysis() {
+  try {
+    const items = await api('/analyses');
+    if (!items.length) { $('analysisGrid').innerHTML = '<div class="empty" style="grid-column:1/-1">暂无分析</div>'; return; }
+    $('analysisGrid').innerHTML = items.slice(0, 12).map(a => `
+      <div class="analysis-card">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+          ${a.ticker ? `<span class="ticker-badge">${a.ticker}</span>` : ''}
+          ${directionBadge(a.impact_direction)}
+          <span class="badge ${a.impact_level}" style="font-size:.72rem">${a.impact_level}</span>
+        </div>
+        <div class="summary">${a.summary}</div>
+        <div class="reasoning">${a.reasoning}</div>
+        <div class="analysis-meta">
+          <span style="font-size:.75rem;color:var(--muted)">置信度 ${(a.confidence * 100).toFixed(0)}%</span>
+          <div class="conf-bar-wrap">
+            <div class="conf-bar-bg"><div class="conf-bar" style="width:${(a.confidence * 100).toFixed(0)}%"></div></div>
+          </div>
+          <span style="font-size:.72rem;color:var(--muted)">${shortDate(a.created_at)}</span>
+        </div>
+      </div>`).join('');
+    loadRecentAnalyses(items);
+  } catch (e) { toast('加载分析失败: ' + e.message, 'error'); }
+}
+
+function loadRecentAnalyses(items) {
+  const recent = (items || []).slice(0, 5);
+  if (!recent.length) { $('recentAnalyses').innerHTML = '<div class="empty">暂无分析</div>'; return; }
+  $('recentAnalyses').innerHTML = recent.map(a => `
+    <div class="analysis-card" style="margin-bottom:8px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        ${a.ticker ? `<span class="ticker-badge">${a.ticker}</span>` : ''}
+        ${directionBadge(a.impact_direction)}
+      </div>
+      <div class="summary" style="font-size:.84rem">${a.summary.slice(0, 100)}${a.summary.length > 100 ? '…' : ''}</div>
+    </div>`).join('');
+}
+
+// ── Monitor ────────────────────────────────────────────────────────────────
+$('runMonitor').onclick = async () => {
+  $('runMonitor').textContent = '运行中...';
+  $('runMonitor').disabled = true;
+  try {
+    const result = await api('/monitor/run-once', 'POST', {});
+    $('monitorResult').textContent = JSON.stringify(result, null, 2);
+    toast('监控完成');
+    loadAll();
+  } catch (e) {
+    $('monitorResult').textContent = '错误: ' + e.message;
+    toast('监控失败: ' + e.message, 'error');
+  } finally {
+    $('runMonitor').textContent = '⚡ 立即运行';
+    $('runMonitor').disabled = false;
+  }
+};
+
+// ── Load all ───────────────────────────────────────────────────────────────
+async function loadAll() {
+  await checkHealth();
+  await Promise.all([loadSummary(), loadWatchlist(), loadPortfolio(), loadAlerts(), loadCatalysts(), loadNews(), loadAnalysis()]);
+}
+
+$('refreshAll').onclick = () => loadAll();
+window.addEventListener('load', loadAll);
+</script>
 </body>
 </html>
