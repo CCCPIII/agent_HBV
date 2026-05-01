@@ -1,6 +1,7 @@
 from typing import List
 
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -26,6 +27,13 @@ from services.notification_service import NotificationService
 
 app = FastAPI(title="investment-agent-system")
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 @app.on_event("startup")
 def on_startup() -> None:
@@ -39,8 +47,7 @@ def health() -> dict:
 
 @app.get("/watchlist", response_model=List[WatchlistItemRead])
 def list_watchlist(session: Session = Depends(get_session)) -> List[WatchlistItemRead]:
-    items = session.query(WatchlistItem).filter(WatchlistItem.active == True).all()
-    return items
+    return session.query(WatchlistItem).filter(WatchlistItem.active == True).all()
 
 
 @app.post("/watchlist", response_model=WatchlistItemRead)
@@ -64,8 +71,7 @@ def delete_watchlist(item_id: int, session: Session = Depends(get_session)) -> d
 
 @app.get("/portfolio", response_model=List[PortfolioPositionRead])
 def list_portfolio(session: Session = Depends(get_session)) -> List[PortfolioPositionRead]:
-    positions = session.query(PortfolioPosition).filter(PortfolioPosition.active == True).all()
-    return positions
+    return session.query(PortfolioPosition).filter(PortfolioPosition.active == True).all()
 
 
 @app.post("/portfolio", response_model=PortfolioPositionRead)
@@ -85,6 +91,44 @@ def delete_portfolio(position_id: int, session: Session = Depends(get_session)) 
     position.active = False
     session.commit()
     return {"deleted": position_id}
+
+
+@app.get("/portfolio/summary")
+def portfolio_summary(session: Session = Depends(get_session)) -> List[dict]:
+    """Return portfolio positions enriched with current price and P&L."""
+    positions = session.query(PortfolioPosition).filter(PortfolioPosition.active == True).all()
+    market = MarketDataService()
+    result = []
+    for pos in positions:
+        try:
+            quote = market.get_quote(pos.ticker)
+            current_price = quote["price"]
+            percent_change = quote["percent_change"]
+        except Exception:
+            current_price = None
+            percent_change = None
+
+        cost_basis = pos.quantity * pos.average_cost
+        current_value = pos.quantity * current_price if current_price is not None else None
+        pnl = current_value - cost_basis if current_value is not None else None
+        pnl_pct = (pnl / cost_basis * 100) if (pnl is not None and cost_basis) else None
+
+        result.append({
+            "id": pos.id,
+            "ticker": pos.ticker,
+            "company_name": pos.company_name,
+            "quantity": pos.quantity,
+            "average_cost": pos.average_cost,
+            "currency": pos.currency,
+            "purchase_date": pos.purchase_date.isoformat() if pos.purchase_date else None,
+            "current_price": current_price,
+            "current_value": round(current_value, 2) if current_value is not None else None,
+            "cost_basis": round(cost_basis, 2),
+            "pnl": round(pnl, 2) if pnl is not None else None,
+            "pnl_pct": round(pnl_pct, 2) if pnl_pct is not None else None,
+            "day_change_pct": percent_change,
+        })
+    return result
 
 
 @app.get("/prices/{ticker}")
@@ -110,20 +154,17 @@ def run_monitor_once() -> dict:
 
 @app.get("/alerts", response_model=List[AlertRead])
 def list_alerts(session: Session = Depends(get_session)) -> List[AlertRead]:
-    alerts = session.query(Alert).order_by(Alert.created_at.desc()).limit(100).all()
-    return alerts
+    return session.query(Alert).order_by(Alert.created_at.desc()).limit(100).all()
 
 
 @app.get("/catalysts", response_model=List[CatalystEventRead])
 def list_catalysts(session: Session = Depends(get_session)) -> List[CatalystEventRead]:
-    catalysts = session.query(CatalystEvent).order_by(CatalystEvent.event_date).all()
-    return catalysts
+    return session.query(CatalystEvent).order_by(CatalystEvent.event_date).all()
 
 
 @app.get("/news", response_model=List[NewsItemRead])
 def list_news(session: Session = Depends(get_session)) -> List[NewsItemRead]:
-    news = session.query(NewsItem).order_by(NewsItem.published_at.desc()).limit(100).all()
-    return news
+    return session.query(NewsItem).order_by(NewsItem.published_at.desc()).limit(100).all()
 
 
 @app.get("/analyses")
@@ -133,16 +174,38 @@ def list_analyses(session: Session = Depends(get_session)) -> List[dict]:
     analyses = session.query(AgentAnalysis).order_by(AgentAnalysis.created_at.desc()).limit(100).all()
     return [
         {
-            "id": analysis.id,
-            "related_alert_id": analysis.related_alert_id,
-            "related_news_id": analysis.related_news_id,
-            "ticker": analysis.ticker,
-            "impact_direction": analysis.impact_direction,
-            "impact_level": analysis.impact_level,
-            "summary": analysis.summary,
-            "reasoning": analysis.reasoning,
-            "confidence": analysis.confidence,
-            "created_at": analysis.created_at,
+            "id": a.id,
+            "related_alert_id": a.related_alert_id,
+            "related_news_id": a.related_news_id,
+            "ticker": a.ticker,
+            "impact_direction": a.impact_direction,
+            "impact_level": a.impact_level,
+            "summary": a.summary,
+            "reasoning": a.reasoning,
+            "confidence": a.confidence,
+            "created_at": a.created_at,
         }
-        for analysis in analyses
+        for a in analyses
     ]
+
+
+@app.get("/dashboard/summary")
+def dashboard_summary(session: Session = Depends(get_session)) -> dict:
+    from app.models import AgentAnalysis
+
+    watchlist_count = session.query(WatchlistItem).filter(WatchlistItem.active == True).count()
+    portfolio_count = session.query(PortfolioPosition).filter(PortfolioPosition.active == True).count()
+    alerts_count = session.query(Alert).count()
+    unread_alerts = session.query(Alert).filter(Alert.sent == False).count()
+    analyses_count = session.query(AgentAnalysis).count()
+    news_count = session.query(NewsItem).count()
+    catalysts_count = session.query(CatalystEvent).count()
+    return {
+        "watchlist_count": watchlist_count,
+        "portfolio_count": portfolio_count,
+        "alerts_count": alerts_count,
+        "unread_alerts": unread_alerts,
+        "analyses_count": analyses_count,
+        "news_count": news_count,
+        "catalysts_count": catalysts_count,
+    }

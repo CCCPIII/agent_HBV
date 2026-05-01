@@ -21,8 +21,7 @@ class WatchlistItemRead(WatchlistItemBase):
     id: int
     created_at: datetime
 
-    class Config:
-        orm_mode = True
+    model_config = {"from_attributes": True}
 
 
 class PortfolioPositionBase(BaseModel):
@@ -43,8 +42,7 @@ class PortfolioPositionRead(PortfolioPositionBase):
     id: int
     created_at: datetime
 
-    class Config:
-        orm_mode = True
+    model_config = {"from_attributes": True}
 
 
 class PriceSnapshotRead(BaseModel):
@@ -55,8 +53,7 @@ class PriceSnapshotRead(BaseModel):
     currency: Optional[str]
     captured_at: datetime
 
-    class Config:
-        orm_mode = True
+    model_config = {"from_attributes": True}
 
 
 class CatalystEventRead(BaseModel):
@@ -69,8 +66,7 @@ class CatalystEventRead(BaseModel):
     confidence: float
     created_at: datetime
 
-    class Config:
-        orm_mode = True
+    model_config = {"from_attributes": True}
 
 
 class NewsItemRead(BaseModel):
@@ -84,8 +80,7 @@ class NewsItemRead(BaseModel):
     published_at: datetime
     created_at: datetime
 
-    class Config:
-        orm_mode = True
+    model_config = {"from_attributes": True}
 
 
 class AlertRead(BaseModel):
@@ -99,8 +94,7 @@ class AlertRead(BaseModel):
     created_at: datetime
     sent: bool
 
-    class Config:
-        orm_mode = True
+    model_config = {"from_attributes": True}
 
 
 class AgentAnalysisRead(BaseModel):
@@ -115,5 +109,4 @@ class AgentAnalysisRead(BaseModel):
     confidence: float
     created_at: datetime
 
-    class Config:
-        orm_mode = True
+    model_config = {"from_attributes": True}

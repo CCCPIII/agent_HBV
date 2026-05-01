@@ -3,9 +3,9 @@ import re
 from typing import Dict, Optional
 
 try:
-    import openai
-except ImportError:  # pragma: no cover
-    openai = None
+    from openai import OpenAI
+except ImportError:
+    OpenAI = None
 
 from app.config import settings
 
@@ -14,16 +14,16 @@ class ImpactAgent:
     """Analyze event impact using OpenAI or fallback rules."""
 
     def analyze(self, item: Dict[str, object]) -> Dict[str, object]:
-        if settings.openai_api_key and openai:
+        if settings.openai_api_key and OpenAI:
             return self._openai_analysis(item)
         return self._fallback_analysis(item)
 
     def _openai_analysis(self, item: Dict[str, object]) -> Dict[str, object]:
-        openai.api_key = settings.openai_api_key
+        client = OpenAI(api_key=settings.openai_api_key)
         prompt = self._build_prompt(item)
         try:
-            response = openai.ChatCompletion.create(
-                model="gpt-3.5-turbo",
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=300,
             )
@@ -34,9 +34,14 @@ class ImpactAgent:
 
     def _build_prompt(self, item: Dict[str, object]) -> str:
         return (
-            "Analyze the following investment intelligence signal and provide a structured analysis. "
+            "Analyze the following investment intelligence signal and provide a structured analysis.\n"
             f"Item: {item}\n"
-            "Answer with impact_direction, impact_level, summary, reasoning, confidence."
+            "Reply with these fields on separate lines:\n"
+            "impact_direction: <positive|negative|neutral|unknown>\n"
+            "impact_level: <high|medium|low>\n"
+            "summary: <one sentence>\n"
+            "reasoning: <one sentence>\n"
+            "confidence: <0.0-1.0>"
         )
 
     def _parse_openai_response(self, text: str, item: Dict[str, object]) -> Dict[str, object]:
@@ -46,16 +51,22 @@ class ImpactAgent:
             "ticker": item.get("ticker"),
             "impact_direction": self._extract_field(text, "impact_direction") or "unknown",
             "impact_level": self._extract_field(text, "impact_level") or "medium",
-            "summary": self._extract_field(text, "summary") or text,
+            "summary": self._extract_field(text, "summary") or text[:200],
             "reasoning": self._extract_field(text, "reasoning") or "Generated from OpenAI.",
-            "confidence": float(self._extract_field(text, "confidence") or 0.7),
+            "confidence": self._parse_confidence(self._extract_field(text, "confidence")),
         }
 
     def _extract_field(self, text: str, field: str) -> Optional[str]:
-        match = re.search(rf"{field}\s*[:=]\s*(.+)", text, re.IGNORECASE)
+        match = re.search(rf"^{field}\s*[:=]\s*(.+)", text, re.IGNORECASE | re.MULTILINE)
         if match:
             return match.group(1).strip()
         return None
+
+    def _parse_confidence(self, value: Optional[str]) -> float:
+        try:
+            return min(1.0, max(0.0, float(value or 0.7)))
+        except (TypeError, ValueError):
+            return 0.7
 
     def _fallback_analysis(self, item: Dict[str, object]) -> Dict[str, object]:
         direction = "unknown"
