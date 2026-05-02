@@ -8,6 +8,7 @@ from app.config import settings
 from app.db import Base, engine, get_session
 from app.models import Alert, CatalystEvent, NewsItem, PortfolioPosition, WatchlistItem
 from app.schemas import (
+    AgentAnalysisRead,
     AlertRead,
     CatalystEventRead,
     NewsItemRead,
@@ -212,26 +213,15 @@ def list_news(session: Session = Depends(get_session)) -> List[NewsItemRead]:
     return session.query(NewsItem).order_by(NewsItem.published_at.desc()).limit(100).all()
 
 
-@app.get("/analyses")
-def list_analyses(session: Session = Depends(get_session)) -> List[dict]:
-    from app.models import AgentAnalysis
-
-    analyses = session.query(AgentAnalysis).order_by(AgentAnalysis.created_at.desc()).limit(100).all()
-    return [
-        {
-            "id": a.id,
-            "related_alert_id": a.related_alert_id,
-            "related_news_id": a.related_news_id,
-            "ticker": a.ticker,
-            "impact_direction": a.impact_direction,
-            "impact_level": a.impact_level,
-            "summary": a.summary,
-            "reasoning": a.reasoning,
-            "confidence": a.confidence,
-            "created_at": a.created_at,
-        }
-        for a in analyses
-    ]
+@app.get("/analyses", response_model=List[AgentAnalysisRead])
+def list_analyses(session: Session = Depends(get_session)) -> List[AgentAnalysisRead]:
+    from app.models import AgentAnalysis as AgentAnalysisModel
+    return (
+        session.query(AgentAnalysisModel)
+        .order_by(AgentAnalysisModel.created_at.desc())
+        .limit(100)
+        .all()
+    )
 
 
 @app.get("/dashboard/summary")
