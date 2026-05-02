@@ -1,79 +1,157 @@
-import os
+"""
+ImpactAgent — multi-provider LLM analysis with rule-based fallback.
+
+Supported providers (set ACTIVE_LLM_PROVIDER in .env):
+  openai    → OpenAI API           (gpt-4o-mini)
+  deepseek  → DeepSeek API         (deepseek-chat)
+  kimi      → Moonshot/KIMI API    (moonshot-v1-8k)
+  zhipu     → Zhipu GLM API        (glm-4-flash)
+  gemini    → Google Gemini API    (gemini-2.0-flash)
+  claude    → Anthropic Claude API (claude-haiku-4-5-20251001)
+
+DeepSeek, KIMI, Zhipu, and Gemini all expose an OpenAI-compatible interface,
+so the openai SDK is reused with a custom base_url. Claude uses the anthropic SDK.
+"""
+
 import re
 from typing import Dict, Optional
 
-try:
-    from openai import OpenAI
-except ImportError:
-    OpenAI = None
-
 from app.config import settings
+
+# ── OpenAI-compatible providers ─────────────────────────────────────────────
+_OPENAI_COMPAT = {
+    "openai": {
+        "base_url": "https://api.openai.com/v1",
+        "model_key": "openai_model",
+    },
+    "deepseek": {
+        "base_url": "https://api.deepseek.com",
+        "model_key": "deepseek_model",
+    },
+    "kimi": {
+        "base_url": "https://api.moonshot.cn/v1",
+        "model_key": "kimi_model",
+    },
+    "zhipu": {
+        "base_url": "https://open.bigmodel.cn/api/paas/v4/",
+        "model_key": "zhipu_model",
+    },
+    "gemini": {
+        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+        "model_key": "gemini_model",
+    },
+}
+
+_ANALYSIS_PROMPT = (
+    "You are an investment analyst. Analyze the following signal and reply with "
+    "exactly these fields on separate lines:\n"
+    "impact_direction: <positive|negative|neutral|unknown>\n"
+    "impact_level: <high|medium|low>\n"
+    "summary: <one concise sentence>\n"
+    "reasoning: <one concise sentence>\n"
+    "confidence: <float 0.0-1.0>\n\n"
+    "Signal data:\n{item}"
+)
+
+
+class LLMRouter:
+    """Route LLM calls to the active provider."""
+
+    def call(self, item: Dict) -> Optional[str]:
+        provider = settings.active_llm_provider
+        key = settings.active_api_key()
+        if not key:
+            return None
+
+        prompt = _ANALYSIS_PROMPT.format(item=item)
+
+        if provider in _OPENAI_COMPAT:
+            return self._call_openai_compat(provider, key, prompt)
+        if provider == "claude":
+            return self._call_claude(key, prompt)
+        return None
+
+    def _call_openai_compat(self, provider: str, api_key: str, prompt: str) -> Optional[str]:
+        try:
+            from openai import OpenAI
+        except ImportError:
+            return None
+
+        cfg = _OPENAI_COMPAT[provider]
+        model = getattr(settings, cfg["model_key"])
+        client = OpenAI(api_key=api_key, base_url=cfg["base_url"])
+        try:
+            resp = client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=300,
+                temperature=0.3,
+            )
+            return resp.choices[0].message.content.strip()
+        except Exception:
+            return None
+
+    def _call_claude(self, api_key: str, prompt: str) -> Optional[str]:
+        try:
+            import anthropic
+        except ImportError:
+            return None
+
+        client = anthropic.Anthropic(api_key=api_key)
+        try:
+            msg = client.messages.create(
+                model=settings.claude_model,
+                max_tokens=300,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            return msg.content[0].text.strip()
+        except Exception:
+            return None
 
 
 class ImpactAgent:
-    """Analyze event impact using OpenAI or fallback rules."""
+    """Analyze event impact using the configured LLM provider, or fallback rules."""
 
-    def analyze(self, item: Dict[str, object]) -> Dict[str, object]:
-        if settings.openai_api_key and OpenAI:
-            return self._openai_analysis(item)
+    def __init__(self):
+        self._router = LLMRouter()
+
+    def analyze(self, item: Dict) -> Dict:
+        text = self._router.call(item)
+        if text:
+            return self._parse_response(text, item)
         return self._fallback_analysis(item)
 
-    def _openai_analysis(self, item: Dict[str, object]) -> Dict[str, object]:
-        client = OpenAI(api_key=settings.openai_api_key)
-        prompt = self._build_prompt(item)
-        try:
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=300,
-            )
-            text = response.choices[0].message.content.strip()
-            return self._parse_openai_response(text, item)
-        except Exception:
-            return self._fallback_analysis(item)
+    # ── Response parsing ─────────────────────────────────────────────────────
 
-    def _build_prompt(self, item: Dict[str, object]) -> str:
-        return (
-            "Analyze the following investment intelligence signal and provide a structured analysis.\n"
-            f"Item: {item}\n"
-            "Reply with these fields on separate lines:\n"
-            "impact_direction: <positive|negative|neutral|unknown>\n"
-            "impact_level: <high|medium|low>\n"
-            "summary: <one sentence>\n"
-            "reasoning: <one sentence>\n"
-            "confidence: <0.0-1.0>"
-        )
+    def _parse_response(self, text: str, item: Dict) -> Dict:
+        def get(field):
+            m = re.search(rf"^{field}\s*[:=]\s*(.+)", text, re.IGNORECASE | re.MULTILINE)
+            return m.group(1).strip() if m else None
 
-    def _parse_openai_response(self, text: str, item: Dict[str, object]) -> Dict[str, object]:
         return {
             "related_alert_id": item.get("related_alert_id"),
             "related_news_id": item.get("related_news_id"),
             "ticker": item.get("ticker"),
-            "impact_direction": self._extract_field(text, "impact_direction") or "unknown",
-            "impact_level": self._extract_field(text, "impact_level") or "medium",
-            "summary": self._extract_field(text, "summary") or text[:200],
-            "reasoning": self._extract_field(text, "reasoning") or "Generated from OpenAI.",
-            "confidence": self._parse_confidence(self._extract_field(text, "confidence")),
+            "impact_direction": get("impact_direction") or "unknown",
+            "impact_level": get("impact_level") or "medium",
+            "summary": get("summary") or text[:200],
+            "reasoning": get("reasoning") or f"Analysis by {settings.active_llm_provider}.",
+            "confidence": self._parse_float(get("confidence"), 0.7),
         }
 
-    def _extract_field(self, text: str, field: str) -> Optional[str]:
-        match = re.search(rf"^{field}\s*[:=]\s*(.+)", text, re.IGNORECASE | re.MULTILINE)
-        if match:
-            return match.group(1).strip()
-        return None
-
-    def _parse_confidence(self, value: Optional[str]) -> float:
+    @staticmethod
+    def _parse_float(value: Optional[str], default: float) -> float:
         try:
-            return min(1.0, max(0.0, float(value or 0.7)))
+            return min(1.0, max(0.0, float(value or default)))
         except (TypeError, ValueError):
-            return 0.7
+            return default
 
-    def _fallback_analysis(self, item: Dict[str, object]) -> Dict[str, object]:
-        direction = "unknown"
-        level = "low"
-        reason = "Using rule-based fallback analysis."
+    # ── Rule-based fallback ──────────────────────────────────────────────────
+
+    def _fallback_analysis(self, item: Dict) -> Dict:
+        direction, level, confidence = "unknown", "low", 0.6
         summary = "No strong signal detected."
-        confidence = 0.6
+        reason = "Rule-based fallback (no LLM provider configured)."
 
         value = item.get("value")
         event_type = item.get("event_type") or item.get("alert_type")
@@ -81,43 +159,32 @@ class ImpactAgent:
 
         if event_type == "price_move" and value is not None:
             if value >= 5:
-                direction = "positive"
-                level = "high"
+                direction, level, confidence = "positive", "high", 0.8
                 summary = "Positive momentum from a strong upward move."
-                reason = "Price moved upward above the alert threshold."
-                confidence = 0.8
+                reason = "Price moved above the alert threshold."
             elif value <= -5:
-                direction = "negative"
-                level = "high"
+                direction, level, confidence = "negative", "high", 0.8
                 summary = "Negative momentum from a strong downward move."
-                reason = "Price moved downward below the alert threshold."
-                confidence = 0.8
+                reason = "Price moved below the alert threshold."
             else:
-                direction = "neutral"
-                level = "low"
+                direction, level = "neutral", "low"
                 summary = "Price move is within threshold boundaries."
 
-        elif event_type in {"earnings", "dividend", "stock_split", "investor_day", "company_event", "ipo", "regulatory"}:
-            if "beat" in title or "strong" in title or "upgrade" in title:
-                direction = "positive"
-                level = "medium"
-                summary = "Catalyst appears positive based on event type and wording."
-                confidence = 0.7
-            elif "miss" in title or "weak" in title or "downgrade" in title:
-                direction = "negative"
-                level = "medium"
-                summary = "Catalyst appears negative based on event type and wording."
-                confidence = 0.7
+        elif event_type in {"earnings", "dividend", "stock_split", "investor_day",
+                            "company_event", "ipo", "regulatory"}:
+            if any(w in title for w in ("beat", "strong", "upgrade", "surge")):
+                direction, level, confidence = "positive", "medium", 0.7
+                summary = "Catalyst appears positive based on keywords."
+            elif any(w in title for w in ("miss", "weak", "downgrade", "drop")):
+                direction, level, confidence = "negative", "medium", 0.7
+                summary = "Catalyst appears negative based on keywords."
             else:
-                direction = "neutral"
-                level = "medium"
-                summary = "Catalyst is not clearly directional from the current data."
+                direction, level = "neutral", "medium"
+                summary = "Catalyst direction is unclear from available data."
 
         elif "ipo" in title or "hkex" in title:
-            direction = "unknown"
-            level = "medium"
-            summary = "IPO and market events require follow-up analysis."
-            confidence = 0.5
+            direction, level, confidence = "unknown", "medium", 0.5
+            summary = "IPO/market event requires follow-up analysis."
 
         return {
             "related_alert_id": item.get("related_alert_id"),

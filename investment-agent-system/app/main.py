@@ -45,6 +45,51 @@ def health() -> dict:
     return {"status": "ok"}
 
 
+@app.get("/config/models")
+def config_models() -> dict:
+    """Return the status of all LLM providers and which one is active."""
+    return {
+        "active_provider": settings.active_llm_provider,
+        "providers": settings.providers_status(),
+    }
+
+
+@app.get("/config/settings")
+def get_settings() -> dict:
+    """Return all .env settings grouped by category. API keys are masked."""
+    return settings.get_all_for_ui()
+
+
+@app.post("/config/settings")
+def update_settings(updates: dict) -> dict:
+    """Write updates to .env file and reload settings in memory."""
+    updated = settings.update_env(updates)
+    return {"updated": updated, "active_provider": settings.active_llm_provider}
+
+
+@app.get("/news/live/{ticker}")
+def live_news(ticker: str) -> List[dict]:
+    """Fetch recent news for a ticker from Yahoo Finance (no API key required)."""
+    try:
+        import yfinance as yf
+        t = yf.Ticker(ticker.upper())
+        raw = t.news or []
+        result = []
+        for item in raw[:20]:
+            content = item.get("content", {})
+            result.append({
+                "ticker": ticker.upper(),
+                "title": content.get("title") or item.get("title", ""),
+                "summary": (content.get("summary") or content.get("description") or "")[:300],
+                "source": (content.get("provider", {}) or {}).get("displayName", "") or item.get("publisher", ""),
+                "source_url": (content.get("canonicalUrl", {}) or {}).get("url", "") or item.get("link", ""),
+                "published_at": content.get("pubDate") or item.get("providerPublishTime", ""),
+            })
+        return result
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 @app.get("/watchlist", response_model=List[WatchlistItemRead])
 def list_watchlist(session: Session = Depends(get_session)) -> List[WatchlistItemRead]:
     return session.query(WatchlistItem).filter(WatchlistItem.active == True).all()

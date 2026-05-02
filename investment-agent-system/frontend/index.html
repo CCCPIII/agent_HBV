@@ -270,13 +270,14 @@
     <button class="nav-btn" data-tab="alerts"><span class="nav-icon">🔔</span>预警</button>
     <div class="nav-section">数据</div>
     <button class="nav-btn" data-tab="catalysts"><span class="nav-icon">📅</span>催化剂</button>
-    <button class="nav-btn" data-tab="news"><span class="nav-icon">📰</span>新闻</button>
+    <button class="nav-btn" data-tab="news"><span class="nav-icon">📰</span>实时新闻</button>
     <button class="nav-btn" data-tab="analysis"><span class="nav-icon">🤖</span>AI 分析</button>
     <div class="nav-section">工具</div>
     <button class="nav-btn" data-tab="monitor"><span class="nav-icon">⚡</span>运行监控</button>
+    <button class="nav-btn" data-tab="settings"><span class="nav-icon">⚙️</span>系统设置</button>
 
     <div class="api-config">
-      <label>Backend API URL</label>
+      <label>Backend URL</label>
       <input id="apiUrl" type="text" value="http://localhost:8000" />
       <button class="btn-sm" id="refreshAll">刷新数据</button>
     </div>
@@ -293,6 +294,14 @@
         <div class="metric-card"><div class="label">AI 分析</div><div class="value" id="m-analyses">—</div></div>
         <div class="metric-card"><div class="label">新闻</div><div class="value" id="m-news">—</div></div>
         <div class="metric-card"><div class="label">催化剂</div><div class="value" id="m-catalysts">—</div></div>
+      </div>
+
+      <!-- AI provider status bar -->
+      <div class="card" style="padding:14px 20px">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <span style="font-size:.78rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.07em">AI 引擎</span>
+          <div id="providerBar" style="display:flex;gap:8px;flex-wrap:wrap"></div>
+        </div>
       </div>
 
       <div class="grid-2">
@@ -381,8 +390,17 @@
     <!-- ── News ── -->
     <section id="news" class="panel">
       <div class="card">
-        <div class="card-title">最新新闻</div>
-        <div id="newsList"><div class="empty">暂无数据</div></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:16px">
+          <div>
+            <div class="card-title" style="margin-bottom:2px">实时新闻 <span style="font-size:.72rem;background:rgba(34,197,94,0.15);color:#86efac;border:1px solid rgba(34,197,94,0.3);padding:2px 8px;border-radius:20px;margin-left:6px">免费 · 无需 API Key</span></div>
+            <div style="font-size:.8rem;color:var(--muted)">由 Yahoo Finance 提供，输入代码即可获取实时新闻</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input id="newsTicker" placeholder="AAPL" style="width:100px;background:var(--panel-alt);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:10px;font-size:.88rem;outline:none">
+            <button onclick="loadLiveNews()" style="padding:8px 16px;background:linear-gradient(135deg,#7c3aed,#4338ca);border:none;border-radius:10px;color:white;font-weight:600;cursor:pointer;font-size:.88rem">查询</button>
+          </div>
+        </div>
+        <div id="newsList"><div class="empty">输入股票代码查询实时新闻，或点击"查询"显示自选股新闻</div></div>
       </div>
     </section>
 
@@ -409,6 +427,146 @@
           <pre id="monitorResult">尚未运行。点击左侧按钮开始。</pre>
         </div>
       </div>
+    </section>
+
+    <!-- ── Models ── -->
+    <section id="models" class="panel">
+      <div class="card">
+        <div class="card-title">🧠 AI 模型状态</div>
+        <div id="modelCards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px">
+          <div class="empty">加载中...</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Settings ── -->
+    <section id="settings" class="panel">
+
+      <!-- Feature capability banner -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+        <div class="card" style="border-color:rgba(34,197,94,0.3);background:rgba(34,197,94,0.05)">
+          <div style="font-size:.8rem;font-weight:700;color:#86efac;text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px">✅ 无需 API Key 的功能</div>
+          <ul style="font-size:.85rem;color:var(--text);line-height:2;list-style:none;padding:0;margin:0">
+            <li>📈 实时股价 &amp; 涨跌幅（Yahoo Finance）</li>
+            <li>💼 持仓市值 &amp; 盈亏计算</li>
+            <li>🔔 价格异动预警（阈值检测）</li>
+            <li>📰 股票实时新闻（Yahoo Finance）</li>
+            <li>📅 催化剂日历管理</li>
+            <li>🗃️ 数据库持久化</li>
+          </ul>
+        </div>
+        <div class="card" style="border-color:rgba(109,40,217,0.3);background:rgba(109,40,217,0.05)">
+          <div style="font-size:.8rem;font-weight:700;color:#a78bfa;text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px">🤖 需要 AI API Key 的功能</div>
+          <ul style="font-size:.85rem;color:var(--text);line-height:2;list-style:none;padding:0;margin:0">
+            <li>🧠 事件影响方向分析（正面/负面/中性）</li>
+            <li>📊 影响程度评级（高/中/低）</li>
+            <li>💡 AI 推理摘要生成</li>
+            <li>🔍 置信度评分</li>
+          </ul>
+          <div style="font-size:.78rem;color:var(--muted);margin-top:8px">未配置 Key 时自动降级为规则引擎，基本功能不受影响</div>
+        </div>
+      </div>
+
+      <!-- Database -->
+      <div class="card">
+        <div class="card-title">🗄️ 数据库</div>
+        <div class="form-grid">
+          <div class="field form-full">
+            <label>DATABASE_URL</label>
+            <input id="cfg-DATABASE_URL" placeholder="sqlite:///./investment_agent.db">
+          </div>
+          <button class="btn-primary" onclick="saveGroup(['DATABASE_URL'])">保存</button>
+        </div>
+      </div>
+
+      <!-- LLM -->
+      <div class="card">
+        <div class="card-title">🧠 AI 模型配置</div>
+        <div class="form-grid">
+          <div class="field form-full">
+            <label>ACTIVE_LLM_PROVIDER &nbsp;<span style="color:var(--muted);font-weight:400">（选择使用哪个模型）</span></label>
+            <select id="cfg-ACTIVE_LLM_PROVIDER">
+              <option value="openai">OpenAI</option>
+              <option value="deepseek">DeepSeek</option>
+              <option value="kimi">KIMI（月之暗面）</option>
+              <option value="zhipu">智谱 GLM</option>
+              <option value="gemini">Google Gemini</option>
+              <option value="claude">Anthropic Claude</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px">
+          <!-- OpenAI -->
+          <div style="border:1px solid var(--border);border-radius:12px;padding:14px">
+            <div style="font-weight:600;font-size:.88rem;margin-bottom:10px">🟢 OpenAI</div>
+            <div class="field"><label>API Key</label><input id="cfg-OPENAI_API_KEY" type="password" placeholder="sk-..."></div>
+            <div class="field"><label>Model</label><input id="cfg-OPENAI_MODEL" placeholder="gpt-4o-mini"></div>
+            <button class="btn-primary" style="margin-top:8px" onclick="saveGroup(['OPENAI_API_KEY','OPENAI_MODEL'])">保存</button>
+          </div>
+          <!-- DeepSeek -->
+          <div style="border:1px solid var(--border);border-radius:12px;padding:14px">
+            <div style="font-weight:600;font-size:.88rem;margin-bottom:10px">🔵 DeepSeek</div>
+            <div class="field"><label>API Key</label><input id="cfg-DEEPSEEK_API_KEY" type="password" placeholder="sk-..."></div>
+            <div class="field"><label>Model</label><input id="cfg-DEEPSEEK_MODEL" placeholder="deepseek-chat"></div>
+            <button class="btn-primary" style="margin-top:8px" onclick="saveGroup(['DEEPSEEK_API_KEY','DEEPSEEK_MODEL'])">保存</button>
+          </div>
+          <!-- KIMI -->
+          <div style="border:1px solid var(--border);border-radius:12px;padding:14px">
+            <div style="font-weight:600;font-size:.88rem;margin-bottom:10px">🌙 KIMI（月之暗面）</div>
+            <div class="field"><label>API Key</label><input id="cfg-KIMI_API_KEY" type="password" placeholder="sk-..."></div>
+            <div class="field"><label>Model</label><input id="cfg-KIMI_MODEL" placeholder="moonshot-v1-8k"></div>
+            <button class="btn-primary" style="margin-top:8px" onclick="saveGroup(['KIMI_API_KEY','KIMI_MODEL'])">保存</button>
+          </div>
+          <!-- Zhipu -->
+          <div style="border:1px solid var(--border);border-radius:12px;padding:14px">
+            <div style="font-weight:600;font-size:.88rem;margin-bottom:10px">🔴 智谱 GLM</div>
+            <div class="field"><label>API Key</label><input id="cfg-ZHIPU_API_KEY" type="password" placeholder="xxx.xxx"></div>
+            <div class="field"><label>Model</label><input id="cfg-ZHIPU_MODEL" placeholder="glm-4-flash"></div>
+            <button class="btn-primary" style="margin-top:8px" onclick="saveGroup(['ZHIPU_API_KEY','ZHIPU_MODEL'])">保存</button>
+          </div>
+          <!-- Gemini -->
+          <div style="border:1px solid var(--border);border-radius:12px;padding:14px">
+            <div style="font-weight:600;font-size:.88rem;margin-bottom:10px">💎 Google Gemini</div>
+            <div class="field"><label>API Key</label><input id="cfg-GEMINI_API_KEY" type="password" placeholder="AIza..."></div>
+            <div class="field"><label>Model</label><input id="cfg-GEMINI_MODEL" placeholder="gemini-2.0-flash"></div>
+            <button class="btn-primary" style="margin-top:8px" onclick="saveGroup(['GEMINI_API_KEY','GEMINI_MODEL'])">保存</button>
+          </div>
+          <!-- Claude -->
+          <div style="border:1px solid var(--border);border-radius:12px;padding:14px">
+            <div style="font-weight:600;font-size:.88rem;margin-bottom:10px">🟠 Anthropic Claude</div>
+            <div class="field"><label>API Key</label><input id="cfg-CLAUDE_API_KEY" type="password" placeholder="sk-ant-..."></div>
+            <div class="field"><label>Model</label><input id="cfg-CLAUDE_MODEL" placeholder="claude-haiku-4-5-20251001"></div>
+            <button class="btn-primary" style="margin-top:8px" onclick="saveGroup(['CLAUDE_API_KEY','CLAUDE_MODEL'])">保存</button>
+          </div>
+        </div>
+        <div style="margin-top:14px">
+          <button class="btn-primary" style="max-width:220px" onclick="saveGroup(['ACTIVE_LLM_PROVIDER'])">保存 Provider 选择</button>
+        </div>
+      </div>
+
+      <!-- Notifications -->
+      <div class="card">
+        <div class="card-title">📱 Telegram 推送通知 <span style="font-size:.75rem;color:var(--muted);font-weight:400">（可选）</span></div>
+        <div class="form-grid">
+          <div class="field"><label>TELEGRAM_BOT_TOKEN</label><input id="cfg-TELEGRAM_BOT_TOKEN" type="password" placeholder="7xxx:AAxxxxx"></div>
+          <div class="field"><label>TELEGRAM_CHAT_ID</label><input id="cfg-TELEGRAM_CHAT_ID" placeholder="123456789"></div>
+          <button class="btn-primary" onclick="saveGroup(['TELEGRAM_BOT_TOKEN','TELEGRAM_CHAT_ID'])">保存</button>
+        </div>
+      </div>
+
+      <!-- Alerts -->
+      <div class="card">
+        <div class="card-title">🔔 预警设置</div>
+        <div class="form-grid">
+          <div class="field form-full">
+            <label>PRICE_ALERT_DEFAULT_THRESHOLD（默认价格变动预警阈值 %）</label>
+            <input id="cfg-PRICE_ALERT_DEFAULT_THRESHOLD" type="number" placeholder="5.0" min="0.1" step="0.5">
+          </div>
+          <button class="btn-primary" onclick="saveGroup(['PRICE_ALERT_DEFAULT_THRESHOLD'])">保存</button>
+        </div>
+      </div>
+
     </section>
 
   </main>
@@ -672,23 +830,41 @@ async function loadCatalysts() {
 }
 
 // ── News ───────────────────────────────────────────────────────────────────
-async function loadNews() {
-  try {
-    const items = await api('/news');
-    if (!items.length) { $('newsList').innerHTML = '<div class="empty">暂无新闻</div>'; return; }
-    $('newsList').innerHTML = items.slice(0, 20).map(n => `
-      <div class="news-item">
-        <div class="news-dot"></div>
-        <div class="news-body">
-          <div class="news-title">${n.ticker ? `<span class="ticker-badge" style="margin-right:6px">${n.ticker}</span>` : ''}${n.title}</div>
-          <div class="news-summary">${n.summary || ''}</div>
-          <div class="news-meta">
-            <span>📰 ${n.source}</span>
-            <span>🕐 ${shortDate(n.published_at)}</span>
-            ${n.source_url ? `<a href="${n.source_url}" target="_blank">阅读全文 ↗</a>` : ''}
-          </div>
+function renderNewsItems(items) {
+  if (!items.length) return '<div class="empty">没有找到新闻</div>';
+  return items.map(n => `
+    <div class="news-item">
+      <div class="news-dot"></div>
+      <div class="news-body">
+        <div class="news-title">${n.ticker ? `<span class="ticker-badge" style="margin-right:6px">${n.ticker}</span>` : ''}${n.title}</div>
+        <div class="news-summary">${n.summary || ''}</div>
+        <div class="news-meta">
+          <span>📰 ${n.source || 'Yahoo Finance'}</span>
+          <span>🕐 ${shortDate(n.published_at)}</span>
+          ${n.source_url ? `<a href="${n.source_url}" target="_blank">阅读全文 ↗</a>` : ''}
         </div>
-      </div>`).join('');
+      </div>
+    </div>`).join('');
+}
+
+async function loadLiveNews() {
+  const ticker = ($('newsTicker').value || '').trim().toUpperCase();
+  $('newsList').innerHTML = '<div class="empty">加载中...</div>';
+  try {
+    if (ticker) {
+      const items = await api(`/news/live/${ticker}`);
+      $('newsList').innerHTML = renderNewsItems(items);
+    } else {
+      // Load from all watchlist tickers
+      const watchlist = await api('/watchlist');
+      if (!watchlist.length) { $('newsList').innerHTML = '<div class="empty">先添加自选股再查询新闻</div>'; return; }
+      const all = [];
+      for (const w of watchlist.slice(0, 3)) {
+        const items = await api(`/news/live/${w.ticker}`);
+        all.push(...items.slice(0, 5));
+      }
+      $('newsList').innerHTML = renderNewsItems(all);
+    }
   } catch (e) { toast('加载新闻失败: ' + e.message, 'error'); }
 }
 
@@ -749,10 +925,146 @@ $('runMonitor').onclick = async () => {
   }
 };
 
+// ── Model status ───────────────────────────────────────────────────────────
+const PROVIDER_META = {
+  openai:   { label: 'OpenAI',   icon: '🟢', color: '#10b981' },
+  deepseek: { label: 'DeepSeek', icon: '🔵', color: '#3b82f6' },
+  kimi:     { label: 'KIMI',     icon: '🌙', color: '#8b5cf6' },
+  zhipu:    { label: '智谱 GLM', icon: '🔴', color: '#ef4444' },
+  gemini:   { label: 'Gemini',   icon: '💎', color: '#f59e0b' },
+  claude:   { label: 'Claude',   icon: '🟠', color: '#f97316' },
+};
+
+async function loadModels() {
+  try {
+    const data = await api('/config/models');
+    const providers = data.providers || {};
+    const active = data.active_provider;
+
+    // Overview bar
+    $('providerBar').innerHTML = Object.entries(providers).map(([id, info]) => {
+      const meta = PROVIDER_META[id] || { label: id, icon: '⚪', color: '#6b7280' };
+      const isActive = info.active;
+      const ok = info.configured;
+      return `<span style="
+        display:inline-flex;align-items:center;gap:5px;
+        padding:3px 10px;border-radius:20px;font-size:.75rem;font-weight:600;
+        border:1px solid ${isActive ? meta.color + '80' : (ok ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.05)')};
+        background:${isActive ? meta.color + '22' : (ok ? 'rgba(255,255,255,0.05)' : 'transparent')};
+        color:${isActive ? meta.color : (ok ? 'var(--muted)' : '#4b5563')};
+        opacity:${ok ? 1 : 0.45};
+      ">${isActive ? '▶ ' : ''}${meta.icon} ${meta.label}${isActive ? ' (使用中)' : ''}</span>`;
+    }).join('');
+
+    // Models tab grid
+    $('modelCards').innerHTML = Object.entries(providers).map(([id, info]) => {
+      const meta = PROVIDER_META[id] || { label: id, icon: '⚪', color: '#6b7280' };
+      const isActive = info.active;
+      const ok = info.configured;
+      return `<div style="
+        border:1px solid ${isActive ? meta.color + '60' : 'var(--border)'};
+        border-radius:12px;padding:16px 18px;
+        background:${isActive ? meta.color + '10' : 'var(--panel-alt)'};
+        position:relative;
+      ">
+        ${isActive ? `<span style="position:absolute;top:12px;right:12px;font-size:.7rem;font-weight:700;
+          background:${meta.color};color:white;padding:2px 8px;border-radius:99px">使用中</span>` : ''}
+        <div style="font-size:1.4rem;margin-bottom:6px">${meta.icon}</div>
+        <div style="font-weight:700;font-size:.95rem;color:${ok ? 'white' : 'var(--muted)'}">${meta.label}</div>
+        <div style="font-size:.78rem;color:var(--muted);margin:4px 0 10px">${info.model}</div>
+        <div style="font-size:.78rem;display:flex;align-items:center;gap:6px">
+          <span style="width:7px;height:7px;border-radius:50%;background:${ok ? '#22c55e' : '#6b7280'};display:inline-block"></span>
+          ${ok ? '<span style="color:#86efac">已配置 API Key</span>' : '<span style="color:var(--muted)">未配置 API Key</span>'}
+        </div>
+      </div>`;
+    }).join('');
+  } catch {
+    $('providerBar').innerHTML = '<span style="font-size:.76rem;color:var(--muted)">无法加载模型状态</span>';
+  }
+}
+
+// ── Settings load / save ───────────────────────────────────────────────────
+async function loadSettings() {
+  try {
+    const cfg = await api('/config/settings');
+
+    // Database
+    setField('DATABASE_URL', cfg.database?.DATABASE_URL);
+
+    // LLM
+    const llm = cfg.llm || {};
+    setField('ACTIVE_LLM_PROVIDER', llm.ACTIVE_LLM_PROVIDER);
+    setKeyField('OPENAI_API_KEY',   llm.OPENAI_API_KEY);
+    setField('OPENAI_MODEL',        llm.OPENAI_MODEL);
+    setKeyField('DEEPSEEK_API_KEY', llm.DEEPSEEK_API_KEY);
+    setField('DEEPSEEK_MODEL',      llm.DEEPSEEK_MODEL);
+    setKeyField('KIMI_API_KEY',     llm.KIMI_API_KEY);
+    setField('KIMI_MODEL',          llm.KIMI_MODEL);
+    setKeyField('ZHIPU_API_KEY',    llm.ZHIPU_API_KEY);
+    setField('ZHIPU_MODEL',         llm.ZHIPU_MODEL);
+    setKeyField('GEMINI_API_KEY',   llm.GEMINI_API_KEY);
+    setField('GEMINI_MODEL',        llm.GEMINI_MODEL);
+    setKeyField('CLAUDE_API_KEY',   llm.CLAUDE_API_KEY);
+    setField('CLAUDE_MODEL',        llm.CLAUDE_MODEL);
+
+    // Notifications
+    const notif = cfg.notifications || {};
+    setKeyField('TELEGRAM_BOT_TOKEN', notif.TELEGRAM_BOT_TOKEN);
+    setField('TELEGRAM_CHAT_ID',      notif.TELEGRAM_CHAT_ID);
+
+    // Alerts
+    setField('PRICE_ALERT_DEFAULT_THRESHOLD', cfg.alerts?.PRICE_ALERT_DEFAULT_THRESHOLD);
+  } catch (e) { /* settings tab may not be visible yet */ }
+}
+
+function setField(key, value) {
+  const el = $(`cfg-${key}`);
+  if (!el || value == null) return;
+  if (el.tagName === 'SELECT') el.value = value;
+  else el.value = value;
+}
+
+function setKeyField(key, info) {
+  const el = $(`cfg-${key}`);
+  if (!el || !info) return;
+  // For password fields: show placeholder if key is set
+  if (info.set) el.placeholder = '已配置（输入新值以更新）';
+  else el.placeholder = el.placeholder || '（未设置）';
+}
+
+async function saveGroup(keys) {
+  const updates = {};
+  for (const key of keys) {
+    const el = $(`cfg-${key}`);
+    if (!el) continue;
+    const val = el.value.trim();
+    if (!val) continue; // don't overwrite with empty (for API keys)
+    updates[key] = val;
+  }
+  if (!Object.keys(updates).length) { toast('没有要保存的内容', 'error'); return; }
+  try {
+    const res = await api('/config/settings', 'POST', updates);
+    toast(`已保存: ${res.updated.join(', ')}`);
+    // Clear password fields after save
+    keys.forEach(k => {
+      const el = $(`cfg-${k}`);
+      if (el && el.type === 'password') { el.value = ''; el.placeholder = '已配置（输入新值以更新）'; }
+    });
+    loadModels();
+    loadSettings();
+  } catch (e) { toast('保存失败: ' + e.message, 'error'); }
+}
+
 // ── Load all ───────────────────────────────────────────────────────────────
 async function loadAll() {
   await checkHealth();
-  await Promise.all([loadSummary(), loadWatchlist(), loadPortfolio(), loadAlerts(), loadCatalysts(), loadNews(), loadAnalysis()]);
+  await Promise.all([
+    loadSummary(), loadModels(), loadSettings(),
+    loadWatchlist(), loadPortfolio(), loadAlerts(),
+    loadCatalysts(), loadAnalysis(),
+  ]);
+  // Load news for default watchlist on first load
+  loadLiveNews();
 }
 
 $('refreshAll').onclick = () => loadAll();
