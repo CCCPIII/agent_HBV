@@ -29,6 +29,7 @@ _DEFAULTS: dict = {
     "TELEGRAM_BOT_TOKEN": "",
     "TELEGRAM_CHAT_ID": "",
     "PRICE_ALERT_DEFAULT_THRESHOLD": "5.0",
+    "MONITOR_INTERVAL_MINUTES": "30",
 }
 
 _SECRET_KEYS = {
@@ -70,6 +71,9 @@ class Settings:
         self.telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID") or None
         self.price_alert_default_threshold = float(
             os.getenv("PRICE_ALERT_DEFAULT_THRESHOLD", "5.0")
+        )
+        self.monitor_interval_minutes = int(
+            os.getenv("MONITOR_INTERVAL_MINUTES", "30")
         )
 
     # ── Provider helpers ────────────────────────────────────────────────────
@@ -144,6 +148,7 @@ class Settings:
             },
             "alerts": {
                 "PRICE_ALERT_DEFAULT_THRESHOLD": val("PRICE_ALERT_DEFAULT_THRESHOLD") or "5.0",
+                "MONITOR_INTERVAL_MINUTES": val("MONITOR_INTERVAL_MINUTES") or "30",
             },
         }
 

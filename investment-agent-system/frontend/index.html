@@ -272,6 +272,7 @@
     <button class="nav-btn" data-tab="catalysts"><span class="nav-icon">📅</span>催化剂</button>
     <button class="nav-btn" data-tab="news"><span class="nav-icon">📰</span>实时新闻</button>
     <button class="nav-btn" data-tab="analysis"><span class="nav-icon">🤖</span>AI 分析</button>
+    <button class="nav-btn" data-tab="market"><span class="nav-icon">🏦</span>市场动态</button>
     <div class="nav-section">工具</div>
     <button class="nav-btn" data-tab="monitor"><span class="nav-icon">⚡</span>运行监控</button>
     <button class="nav-btn" data-tab="settings"><span class="nav-icon">⚙️</span>系统设置</button>
@@ -294,6 +295,11 @@
         <div class="metric-card"><div class="label">AI 分析</div><div class="value" id="m-analyses">—</div></div>
         <div class="metric-card"><div class="label">新闻</div><div class="value" id="m-news">—</div></div>
         <div class="metric-card"><div class="label">催化剂</div><div class="value" id="m-catalysts">—</div></div>
+        <div class="metric-card" style="cursor:pointer" onclick="document.querySelector('[data-tab=monitor]').click()">
+          <div class="label">自动调度</div>
+          <div class="value" style="font-size:1.2rem" id="m-scheduler">—</div>
+          <div class="sub" id="m-scheduler-next"></div>
+        </div>
       </div>
 
       <!-- AI provider status bar -->
@@ -412,11 +418,28 @@
       </div>
     </section>
 
+    <!-- ── Market (IPO / 市场动态) ── -->
+    <section id="market" class="panel">
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:16px">
+          <div>
+            <div class="card-title" style="margin-bottom:2px">
+              市场动态 &amp; IPO 追踪
+              <span style="font-size:.72rem;background:rgba(34,197,94,0.15);color:#86efac;border:1px solid rgba(34,197,94,0.3);padding:2px 8px;border-radius:20px;margin-left:6px">免费 · 无需 API Key</span>
+            </div>
+            <div style="font-size:.8rem;color:var(--muted)">聚合香港市场 IPO、新股上市及重要市场事件（Yahoo Finance 实时数据）</div>
+          </div>
+          <button onclick="loadMarketNews()" style="padding:8px 16px;background:linear-gradient(135deg,#7c3aed,#4338ca);border:none;border-radius:10px;color:white;font-weight:600;cursor:pointer;font-size:.88rem">刷新</button>
+        </div>
+        <div id="marketNewsList"><div class="empty">加载中...</div></div>
+      </div>
+    </section>
+
     <!-- ── Monitor ── -->
     <section id="monitor" class="panel">
       <div class="grid-2">
         <div class="card">
-          <div class="card-title">运行监控周期</div>
+          <div class="card-title">手动触发监控</div>
           <p style="font-size:.87rem;color:var(--muted);line-height:1.6;margin-bottom:14px;">
             触发一次完整监控：拉取实时行情 → 检测价格异动 → AI 影响分析 → 生成预警 → 推送通知。
           </p>
@@ -425,6 +448,29 @@
         <div class="card">
           <div class="card-title">运行结果</div>
           <pre id="monitorResult">尚未运行。点击左侧按钮开始。</pre>
+        </div>
+      </div>
+
+      <!-- Auto-scheduler card -->
+      <div class="card">
+        <div class="card-title" style="display:flex;align-items:center;gap:10px">
+          🕐 自动调度器
+          <span id="schedulerBadge" style="font-size:.72rem;padding:2px 10px;border-radius:20px;font-weight:700"></span>
+        </div>
+        <p style="font-size:.87rem;color:var(--muted);line-height:1.6;margin-bottom:16px;">
+          启动后系统会按设定间隔自动运行监控周期，无需手动点击。设置间隔为 <b>0</b> 可关闭自动运行。
+        </p>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:14px" id="schedulerStats">
+          <div class="pnl-card"><div class="label">间隔</div><div class="val" id="sch-interval">—</div></div>
+          <div class="pnl-card"><div class="label">上次运行</div><div class="val" style="font-size:.95rem" id="sch-last">—</div></div>
+          <div class="pnl-card"><div class="label">下次运行</div><div class="val" style="font-size:.95rem" id="sch-next">—</div></div>
+        </div>
+        <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+          <div class="field" style="flex:1;min-width:160px">
+            <label>自动运行间隔（分钟，0 = 关闭）</label>
+            <input id="schIntervalInput" type="number" min="0" max="1440" step="5" placeholder="30">
+          </div>
+          <button onclick="saveScheduler()" style="padding:10px 20px;background:linear-gradient(135deg,#7c3aed,#4338ca);border:none;border-radius:10px;color:white;font-weight:600;cursor:pointer;font-size:.9rem;margin-bottom:1px">保存</button>
         </div>
       </div>
     </section>
@@ -555,15 +601,19 @@
         </div>
       </div>
 
-      <!-- Alerts -->
+      <!-- Alerts & Scheduler -->
       <div class="card">
-        <div class="card-title">🔔 预警设置</div>
+        <div class="card-title">🔔 预警 &amp; 调度设置</div>
         <div class="form-grid">
-          <div class="field form-full">
-            <label>PRICE_ALERT_DEFAULT_THRESHOLD（默认价格变动预警阈值 %）</label>
+          <div class="field">
+            <label>PRICE_ALERT_DEFAULT_THRESHOLD（价格变动预警阈值 %）</label>
             <input id="cfg-PRICE_ALERT_DEFAULT_THRESHOLD" type="number" placeholder="5.0" min="0.1" step="0.5">
           </div>
-          <button class="btn-primary" onclick="saveGroup(['PRICE_ALERT_DEFAULT_THRESHOLD'])">保存</button>
+          <div class="field">
+            <label>MONITOR_INTERVAL_MINUTES（自动监控间隔，0 = 关闭）</label>
+            <input id="cfg-MONITOR_INTERVAL_MINUTES" type="number" placeholder="30" min="0" step="5">
+          </div>
+          <button class="btn-primary" onclick="saveGroup(['PRICE_ALERT_DEFAULT_THRESHOLD','MONITOR_INTERVAL_MINUTES'])">保存</button>
         </div>
       </div>
 
@@ -651,6 +701,13 @@ async function loadSummary() {
     $('m-analyses').textContent = s.analyses_count ?? 0;
     $('m-news').textContent = s.news_count ?? 0;
     $('m-catalysts').textContent = s.catalysts_count ?? 0;
+    const sch = s.scheduler || {};
+    $('m-scheduler').innerHTML = sch.enabled
+      ? `<span class="pos">ON</span>`
+      : `<span class="neu">OFF</span>`;
+    $('m-scheduler-next').textContent = sch.next_run_at
+      ? '下次 ' + sch.next_run_at.slice(11, 16)
+      : (sch.enabled ? '等待中' : '已关闭');
   } catch {}
 }
 
@@ -907,6 +964,63 @@ function loadRecentAnalyses(items) {
     </div>`).join('');
 }
 
+// ── Market news (IPO / 市场动态) ───────────────────────────────────────────
+async function loadMarketNews() {
+  $('marketNewsList').innerHTML = '<div class="empty">加载中...</div>';
+  try {
+    const items = await api('/news/market');
+    if (!items.length) {
+      $('marketNewsList').innerHTML = '<div class="empty">暂无 IPO / 市场动态（yfinance 关键词过滤中）</div>';
+      return;
+    }
+    $('marketNewsList').innerHTML = items.map(n => `
+      <div class="news-item">
+        <div class="news-dot" style="background:#f59e0b"></div>
+        <div class="news-body">
+          <div class="news-title">
+            ${n.ticker ? `<span class="ticker-badge" style="margin-right:6px;background:rgba(245,158,11,0.15);color:#fcd34d;border-color:rgba(245,158,11,0.35)">${n.ticker}</span>` : ''}
+            ${n.title}
+          </div>
+          <div class="news-summary">${n.summary || ''}</div>
+          <div class="news-meta">
+            <span>🏦 ${n.source || 'Yahoo Finance'}</span>
+            <span>🕐 ${shortDate(n.published_at)}</span>
+            ${n.source_url ? `<a href="${n.source_url}" target="_blank">阅读全文 ↗</a>` : ''}
+          </div>
+        </div>
+      </div>`).join('');
+  } catch (e) { $('marketNewsList').innerHTML = '<div class="empty">加载失败: ' + e.message + '</div>'; }
+}
+
+// ── Scheduler ──────────────────────────────────────────────────────────────
+async function loadScheduler() {
+  try {
+    const s = await api('/monitor/scheduler');
+    const badge = $('schedulerBadge');
+    if (s.enabled) {
+      badge.textContent = '自动运行中';
+      badge.style.cssText = 'background:rgba(34,197,94,0.15);color:#86efac;border:1px solid rgba(34,197,94,0.3)';
+    } else {
+      badge.textContent = '已关闭';
+      badge.style.cssText = 'background:rgba(148,163,184,0.1);color:var(--muted);border:1px solid var(--border)';
+    }
+    $('sch-interval').textContent = s.enabled ? `每 ${s.interval_minutes} 分钟` : '已禁用';
+    $('sch-last').textContent = s.last_run_at ? shortDate(s.last_run_at) + ' ' + s.last_run_at.slice(11,16) : '尚未运行';
+    $('sch-next').textContent = s.next_run_at ? shortDate(s.next_run_at) + ' ' + s.next_run_at.slice(11,16) : '—';
+    if (!$('schIntervalInput').value) $('schIntervalInput').value = s.interval_minutes;
+  } catch {}
+}
+
+async function saveScheduler() {
+  const minutes = parseInt($('schIntervalInput').value, 10);
+  if (isNaN(minutes) || minutes < 0) { toast('请输入有效分钟数（0 表示关闭）', 'error'); return; }
+  try {
+    await api('/monitor/scheduler', 'POST', { interval_minutes: minutes });
+    toast(minutes > 0 ? `已设置：每 ${minutes} 分钟自动运行` : '自动调度已关闭');
+    loadScheduler();
+  } catch (e) { toast('保存失败: ' + e.message, 'error'); }
+}
+
 // ── Monitor ────────────────────────────────────────────────────────────────
 $('runMonitor').onclick = async () => {
   $('runMonitor').textContent = '运行中...';
@@ -1012,8 +1126,9 @@ async function loadSettings() {
     setKeyField('TELEGRAM_BOT_TOKEN', notif.TELEGRAM_BOT_TOKEN);
     setField('TELEGRAM_CHAT_ID',      notif.TELEGRAM_CHAT_ID);
 
-    // Alerts
+    // Alerts & Scheduler
     setField('PRICE_ALERT_DEFAULT_THRESHOLD', cfg.alerts?.PRICE_ALERT_DEFAULT_THRESHOLD);
+    setField('MONITOR_INTERVAL_MINUTES', cfg.alerts?.MONITOR_INTERVAL_MINUTES);
   } catch (e) { /* settings tab may not be visible yet */ }
 }
 
@@ -1059,13 +1174,15 @@ async function saveGroup(keys) {
 async function loadAll() {
   await checkHealth();
   await Promise.all([
-    loadSummary(), loadModels(), loadSettings(),
+    loadSummary(), loadModels(), loadSettings(), loadScheduler(),
     loadWatchlist(), loadPortfolio(), loadAlerts(),
-    loadCatalysts(), loadAnalysis(),
+    loadCatalysts(), loadAnalysis(), loadMarketNews(),
   ]);
-  // Load news for default watchlist on first load
   loadLiveNews();
 }
+
+// Auto-refresh scheduler status every 60s
+setInterval(loadScheduler, 60_000);
 
 $('refreshAll').onclick = () => loadAll();
 window.addEventListener('load', loadAll);

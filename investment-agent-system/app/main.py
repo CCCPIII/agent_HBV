@@ -1,3 +1,6 @@
+import asyncio
+from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
 from typing import List
 
 from fastapi import Depends, FastAPI, HTTPException
@@ -20,13 +23,78 @@ from app.schemas import (
 from graph.stock_monitor_graph import StockMonitorGraph
 from services.alert_service import AlertService
 from services.catalyst_service import CatalystService
+from services.ipo_service import IPOService
 from services.market_data_service import MarketDataService
 from services.news_service import NewsService
-from services.portfolio_service import PortfolioService
-from services.ipo_service import IPOService
 from services.notification_service import NotificationService
+from services.portfolio_service import PortfolioService
 
-app = FastAPI(title="investment-agent-system")
+# ── Scheduler state ──────────────────────────────────────────────────────────
+
+_scheduler: dict = {
+    "enabled": True,
+    "interval_minutes": 30,
+    "last_run_at": None,
+    "next_run_at": None,
+    "running": False,
+}
+
+
+def _build_graph() -> StockMonitorGraph:
+    return StockMonitorGraph(
+        market_data_service=MarketDataService(),
+        catalyst_service=CatalystService(),
+        news_service=NewsService(),
+        ipo_service=IPOService(),
+        alert_service=AlertService(),
+        notification_service=NotificationService(),
+    )
+
+
+def _do_monitor_run() -> None:
+    _scheduler["running"] = True
+    try:
+        _build_graph().run_once()
+        _scheduler["last_run_at"] = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    finally:
+        _scheduler["running"] = False
+
+
+async def _scheduler_loop() -> None:
+    # Brief delay so the server is fully up before first auto-run
+    await asyncio.sleep(15)
+    while True:
+        interval = _scheduler["interval_minutes"]
+        if not _scheduler["enabled"] or interval <= 0:
+            await asyncio.sleep(60)
+            continue
+        loop = asyncio.get_event_loop()
+        try:
+            await loop.run_in_executor(None, _do_monitor_run)
+        except Exception:
+            pass
+        next_run = datetime.utcnow() + timedelta(minutes=interval)
+        _scheduler["next_run_at"] = next_run.strftime("%Y-%m-%dT%H:%M:%SZ")
+        await asyncio.sleep(interval * 60)
+
+
+# ── App with lifespan ────────────────────────────────────────────────────────
+
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    Base.metadata.create_all(bind=engine)
+    _scheduler["interval_minutes"] = settings.monitor_interval_minutes
+    _scheduler["enabled"] = settings.monitor_interval_minutes > 0
+    task = asyncio.create_task(_scheduler_loop())
+    yield
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+
+app = FastAPI(title="investment-agent-system", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -36,19 +104,47 @@ app.add_middleware(
 )
 
 
-@app.on_event("startup")
-def on_startup() -> None:
-    Base.metadata.create_all(bind=engine)
-
+# ── Health ────────────────────────────────────────────────────────────────────
 
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
 
 
+# ── Scheduler ─────────────────────────────────────────────────────────────────
+
+@app.get("/monitor/scheduler")
+def get_scheduler_status() -> dict:
+    return {
+        "enabled": _scheduler["enabled"],
+        "interval_minutes": _scheduler["interval_minutes"],
+        "running": _scheduler["running"],
+        "last_run_at": _scheduler["last_run_at"],
+        "next_run_at": _scheduler["next_run_at"],
+    }
+
+
+@app.post("/monitor/scheduler")
+def update_scheduler(body: dict) -> dict:
+    """Update scheduler. Pass {interval_minutes: N} (0 to disable)."""
+    if "interval_minutes" in body:
+        minutes = int(body["interval_minutes"])
+        _scheduler["interval_minutes"] = minutes
+        _scheduler["enabled"] = minutes > 0
+        # Write to .env so it persists across restarts
+        settings.update_env({"MONITOR_INTERVAL_MINUTES": str(minutes)})
+        if _scheduler["enabled"]:
+            next_run = datetime.utcnow() + timedelta(minutes=minutes)
+            _scheduler["next_run_at"] = next_run.strftime("%Y-%m-%dT%H:%M:%SZ")
+        else:
+            _scheduler["next_run_at"] = None
+    return get_scheduler_status()
+
+
+# ── Config ────────────────────────────────────────────────────────────────────
+
 @app.get("/config/models")
 def config_models() -> dict:
-    """Return the status of all LLM providers and which one is active."""
     return {
         "active_provider": settings.active_llm_provider,
         "providers": settings.providers_status(),
@@ -57,16 +153,20 @@ def config_models() -> dict:
 
 @app.get("/config/settings")
 def get_settings() -> dict:
-    """Return all .env settings grouped by category. API keys are masked."""
     return settings.get_all_for_ui()
 
 
 @app.post("/config/settings")
 def update_settings(updates: dict) -> dict:
-    """Write updates to .env file and reload settings in memory."""
     updated = settings.update_env(updates)
+    # If interval changed, sync scheduler
+    if "MONITOR_INTERVAL_MINUTES" in [k.upper() for k in updates]:
+        _scheduler["interval_minutes"] = settings.monitor_interval_minutes
+        _scheduler["enabled"] = settings.monitor_interval_minutes > 0
     return {"updated": updated, "active_provider": settings.active_llm_provider}
 
+
+# ── News ──────────────────────────────────────────────────────────────────────
 
 @app.get("/news/live/{ticker}")
 def live_news(ticker: str) -> List[dict]:
@@ -91,6 +191,59 @@ def live_news(ticker: str) -> List[dict]:
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+@app.get("/news/market")
+def market_news() -> List[dict]:
+    """Fetch IPO and market event news (HK focus) from Yahoo Finance + stored DB items."""
+    ipo_svc = IPOService()
+    try:
+        live = ipo_svc.get_market_news()
+    except Exception:
+        live = []
+
+    # Also include stored IPO-related news from DB
+    from app.db import SessionLocal
+    stored = []
+    try:
+        with SessionLocal() as session:
+            rows = (
+                session.query(NewsItem)
+                .filter(
+                    (NewsItem.sector == "IPO")
+                    | NewsItem.title.ilike("%IPO%")
+                    | NewsItem.title.ilike("%listing%")
+                    | NewsItem.title.ilike("%新股%")
+                )
+                .order_by(NewsItem.published_at.desc())
+                .limit(20)
+                .all()
+            )
+            for n in rows:
+                stored.append({
+                    "ticker": n.ticker,
+                    "title": n.title,
+                    "summary": n.summary,
+                    "source": n.source,
+                    "source_url": n.source_url,
+                    "published_at": n.published_at.isoformat() if n.published_at else None,
+                    "event_type": "ipo",
+                })
+    except Exception:
+        pass
+
+    # Merge, deduplicate by title
+    seen = set()
+    merged = []
+    for item in live + stored:
+        t = item.get("title", "")
+        if t and t not in seen:
+            seen.add(t)
+            merged.append(item)
+
+    return merged[:30]
+
+
+# ── Watchlist ─────────────────────────────────────────────────────────────────
+
 @app.get("/watchlist", response_model=List[WatchlistItemRead])
 def list_watchlist(session: Session = Depends(get_session)) -> List[WatchlistItemRead]:
     return session.query(WatchlistItem).filter(WatchlistItem.active == True).all()
@@ -114,6 +267,8 @@ def delete_watchlist(item_id: int, session: Session = Depends(get_session)) -> d
     session.commit()
     return {"deleted": item_id}
 
+
+# ── Portfolio ─────────────────────────────────────────────────────────────────
 
 @app.get("/portfolio", response_model=List[PortfolioPositionRead])
 def list_portfolio(session: Session = Depends(get_session)) -> List[PortfolioPositionRead]:
@@ -141,7 +296,6 @@ def delete_portfolio(position_id: int, session: Session = Depends(get_session)) 
 
 @app.get("/portfolio/summary")
 def portfolio_summary(session: Session = Depends(get_session)) -> List[dict]:
-    """Return portfolio positions enriched with current price and P&L."""
     positions = session.query(PortfolioPosition).filter(PortfolioPosition.active == True).all()
     market = MarketDataService()
     result = []
@@ -177,26 +331,24 @@ def portfolio_summary(session: Session = Depends(get_session)) -> List[dict]:
     return result
 
 
+# ── Market data ───────────────────────────────────────────────────────────────
+
 @app.get("/prices/{ticker}")
 def get_price(ticker: str) -> dict:
     service = MarketDataService()
-    quote = service.get_quote(ticker)
-    return quote
+    return service.get_quote(ticker)
 
+
+# ── Monitor ───────────────────────────────────────────────────────────────────
 
 @app.post("/monitor/run-once")
 def run_monitor_once() -> dict:
-    graph = StockMonitorGraph(
-        market_data_service=MarketDataService(),
-        catalyst_service=CatalystService(),
-        news_service=NewsService(),
-        ipo_service=IPOService(),
-        alert_service=AlertService(),
-        notification_service=NotificationService(),
-    )
-    result = graph.run_once()
+    result = _build_graph().run_once()
+    _scheduler["last_run_at"] = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
     return {"status": "completed", "summary": result}
 
+
+# ── Alerts / catalysts / news / analyses ──────────────────────────────────────
 
 @app.get("/alerts", response_model=List[AlertRead])
 def list_alerts(session: Session = Depends(get_session)) -> List[AlertRead]:
@@ -224,6 +376,8 @@ def list_analyses(session: Session = Depends(get_session)) -> List[AgentAnalysis
     )
 
 
+# ── Dashboard ─────────────────────────────────────────────────────────────────
+
 @app.get("/dashboard/summary")
 def dashboard_summary(session: Session = Depends(get_session)) -> dict:
     from app.models import AgentAnalysis
@@ -243,4 +397,10 @@ def dashboard_summary(session: Session = Depends(get_session)) -> dict:
         "analyses_count": analyses_count,
         "news_count": news_count,
         "catalysts_count": catalysts_count,
+        "scheduler": {
+            "enabled": _scheduler["enabled"],
+            "interval_minutes": _scheduler["interval_minutes"],
+            "last_run_at": _scheduler["last_run_at"],
+            "next_run_at": _scheduler["next_run_at"],
+        },
     }

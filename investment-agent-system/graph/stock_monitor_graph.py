@@ -130,11 +130,11 @@ def _fetch_catalysts(catalyst_service, catalyst_agent):
     return node
 
 
-def _fetch_news(news_service, ipo_service, news_agent):
+def _fetch_news(news_service, ipo_service, news_agent, ipo_agent):
     def node(state: MonitorState) -> MonitorState:
         with SessionLocal() as session:
             tickers = [item.ticker for item in state["watchlist"]]
-            state["news"] = [
+            news = [
                 news_agent.normalize({
                     "ticker": n.ticker,
                     "sector": n.sector,
@@ -146,7 +146,24 @@ def _fetch_news(news_service, ipo_service, news_agent):
                 })
                 for n in news_service.get_news(session, tickers=tickers)
             ]
+            # Seed and include IPO events as normalised news items
             ipo_service.seed_demo_ipo(session)
+            try:
+                for event in ipo_service.get_recent_ipo_events(session):
+                    normalized = ipo_agent.normalize(event)
+                    news.append({
+                        "ticker": normalized.get("ticker"),
+                        "sector": "IPO",
+                        "title": normalized.get("title", ""),
+                        "summary": normalized.get("description", ""),
+                        "source": "IPO Monitor",
+                        "source_url": normalized.get("source_url", ""),
+                        "published_at": datetime.utcnow(),
+                        "event_type": "ipo",
+                    })
+            except Exception as exc:
+                state["errors"].append(f"ipo_fetch: {exc}")
+            state["news"] = news
         return state
     return node
 
@@ -274,7 +291,7 @@ class StockMonitorGraph:
         builder.add_node("fetch_market_data",   _fetch_market_data(market_data_service))
         builder.add_node("detect_price_alerts", _detect_price_alerts(alert_service))
         builder.add_node("fetch_catalysts",     _fetch_catalysts(catalyst_service, self.catalyst_agent))
-        builder.add_node("fetch_news",          _fetch_news(news_service, ipo_service, self.news_agent))
+        builder.add_node("fetch_news",          _fetch_news(news_service, ipo_service, self.news_agent, self.ipo_agent))
         builder.add_node("analyze_impact",      _analyze_impact(self.impact_agent))
         builder.add_node("verify_analysis",     _verify_analysis(self.verification_agent))
         builder.add_node("create_alerts",       _create_alerts(alert_service))
