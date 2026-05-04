@@ -26,7 +26,11 @@ class MarketDataService:
             percent_change = 0.0
             if previous_close:
                 percent_change = ((current_price - previous_close) / previous_close) * 100.0
-            currency = ticker_object.info.get("currency") if hasattr(ticker_object, "info") else "USD"
+            # fast_info is much faster than .info (no extra HTTP call)
+            try:
+                currency = getattr(ticker_object.fast_info, "currency", None) or "USD"
+            except Exception:
+                currency = "USD"
             return {
                 "ticker": ticker.upper(),
                 "price": current_price,
