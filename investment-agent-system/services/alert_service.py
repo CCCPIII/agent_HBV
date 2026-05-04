@@ -12,13 +12,15 @@ class AlertService:
 
     def create_price_alert(self, session: Session, item: WatchlistItem, snapshot: Dict[str, Any]) -> Optional[Alert]:
         threshold = item.alert_threshold_percent or self.default_threshold
-        if abs(snapshot["percent_change"]) >= threshold:
+        pct = abs(snapshot["percent_change"])
+        if pct >= threshold:
             title = f"{item.ticker} moved {snapshot['percent_change']:+.1f}%"
             message = f"{item.ticker} moved {snapshot['percent_change']:+.1f}% today, above your {threshold:.1f}% threshold."
+            severity = "high" if pct >= threshold * 2 else "medium"
             alert = Alert(
                 ticker=item.ticker,
                 alert_type="price_move",
-                severity="high" if abs(snapshot["percent_change"]) >= threshold else "medium",
+                severity=severity,
                 title=title,
                 message=message,
                 source_url=None,

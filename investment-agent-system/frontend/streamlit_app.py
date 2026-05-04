@@ -167,28 +167,37 @@ def tab_watchlist():
         st.info("No watchlist items. Add one above.")
         return
 
-    df = pd.DataFrame(items)
-    df["created_at"] = pd.to_datetime(df["created_at"]).dt.strftime("%Y-%m-%d")
-    df["threshold"] = df["alert_threshold_percent"].apply(lambda x: f"{x:.1f}%")
+    # Fetch live prices for all watchlist tickers
+    with st.spinner("Fetching live prices..."):
+        price_map = {}
+        for item in items:
+            quote = get_json(f"/prices/{item['ticker']}", default={})
+            if quote:
+                price_map[item["ticker"]] = quote
 
-    display_cols = ["ticker", "company_name", "exchange", "sector", "threshold", "created_at"]
-    display_cols = [c for c in display_cols if c in df.columns]
-
-    col_header = st.columns([3, 2, 2, 2, 2, 2, 1])
-    for h, label in zip(col_header[:-1], ["Ticker", "Company", "Exchange", "Sector", "Threshold", "Added"]):
+    col_header = st.columns([2, 3, 2, 2, 2, 2, 2, 1])
+    for h, label in zip(col_header[:-1], ["Ticker", "Company", "Exchange", "Sector", "Price", "Day %", "Threshold"]):
         h.markdown(f"**{label}**")
     col_header[-1].markdown("**Del**")
 
-    for _, row in df.iterrows():
-        cols = st.columns([3, 2, 2, 2, 2, 2, 1])
-        cols[0].write(f"**{row['ticker']}**")
-        cols[1].write(row.get("company_name", ""))
-        cols[2].write(row.get("exchange") or "—")
-        cols[3].write(row.get("sector") or "—")
-        cols[4].write(row.get("threshold", ""))
-        cols[5].write(row.get("created_at", ""))
-        if cols[6].button("✕", key=f"del_wl_{row['id']}"):
-            delete_json(f"/watchlist/{row['id']}")
+    for item in items:
+        ticker = item["ticker"]
+        quote = price_map.get(ticker, {})
+        price = quote.get("price")
+        pct = quote.get("percent_change")
+        pct_str = f"{pct:+.2f}%" if pct is not None else "—"
+        pct_color = "green" if (pct or 0) >= 0 else "red"
+
+        cols = st.columns([2, 3, 2, 2, 2, 2, 2, 1])
+        cols[0].write(f"**{ticker}**")
+        cols[1].write(item.get("company_name", ""))
+        cols[2].write(item.get("exchange") or "—")
+        cols[3].write(item.get("sector") or "—")
+        cols[4].write(f"{price:,.2f}" if price is not None else "—")
+        cols[5].markdown(f":{pct_color}[{pct_str}]")
+        cols[6].write(f"{item.get('alert_threshold_percent', 5):.1f}%")
+        if cols[7].button("✕", key=f"del_wl_{item['id']}"):
+            delete_json(f"/watchlist/{item['id']}")
             st.rerun()
 
 

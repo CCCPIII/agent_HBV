@@ -1,8 +1,22 @@
+"""
+Stock monitor workflow using LangGraph StateGraph.
+
+The pipeline runs sequentially through these nodes:
+  fetch_watchlist → fetch_market_data → detect_price_alerts
+  → fetch_catalysts → fetch_news → analyze_impact
+  → verify_analysis → create_alerts → send_notifications → persist_results
+"""
+
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any, Dict, List, TypedDict
+
+from langgraph.graph import StateGraph, END
 
 from app.db import SessionLocal
-from app.models import AgentAnalysis, Alert, CatalystEvent, NewsItem, PriceSnapshot, WatchlistItem
+from app.models import (
+    AgentAnalysis, Alert, CatalystEvent, NewsItem,
+    PortfolioPosition, PriceSnapshot, WatchlistItem,
+)
 from agents.catalyst_agent import CatalystAgent
 from agents.impact_agent import ImpactAgent
 from agents.ipo_agent import IPOAgent
@@ -14,103 +28,76 @@ from services.ipo_service import IPOService
 from services.market_data_service import MarketDataService
 from services.news_service import NewsService
 from services.notification_service import NotificationService
+from services.portfolio_service import PortfolioService
 
 
-class Graph:
-    def __init__(self):
-        self.nodes = []
+# ── State schema ─────────────────────────────────────────────────────────────
 
-    def add_node(self, name: str, func):
-        self.nodes.append((name, func))
+class MonitorState(TypedDict):
+    watchlist: List[Any]
+    price_snapshots: List[Any]
+    alerts: List[Any]
+    catalysts: List[Any]
+    news: List[Any]
+    analyses: List[Any]
+    errors: List[str]
+    summary: Dict[str, Any]
 
-    def run(self, state: Dict[str, Any]) -> Dict[str, Any]:
-        for name, func in self.nodes:
-            state = func(state)
-        return state
 
+# ── Node functions ────────────────────────────────────────────────────────────
 
-class StockMonitorGraph:
-    def __init__(
-        self,
-        market_data_service: MarketDataService,
-        catalyst_service: CatalystService,
-        news_service: NewsService,
-        ipo_service: IPOService,
-        alert_service: AlertService,
-        notification_service: NotificationService,
-    ):
-        self.market_data_service = market_data_service
-        self.catalyst_service = catalyst_service
-        self.news_service = news_service
-        self.ipo_service = ipo_service
-        self.alert_service = alert_service
-        self.notification_service = notification_service
-        self.impact_agent = ImpactAgent()
-        self.verification_agent = VerificationAgent()
-        self.catalyst_agent = CatalystAgent()
-        self.news_agent = NewsAgent()
-        self.ipo_agent = IPOAgent()
-        self.graph = Graph()
-        self.graph.add_node("fetch_watchlist", self.fetch_watchlist)
-        self.graph.add_node("fetch_market_data", self.fetch_market_data)
-        self.graph.add_node("detect_price_alerts", self.detect_price_alerts)
-        self.graph.add_node("fetch_catalysts", self.fetch_catalysts)
-        self.graph.add_node("fetch_news", self.fetch_news)
-        self.graph.add_node("analyze_impact", self.analyze_impact)
-        self.graph.add_node("verify_analysis", self.verify_analysis)
-        self.graph.add_node("create_alerts", self.create_alerts)
-        self.graph.add_node("send_notifications", self.send_notifications)
-        self.graph.add_node("persist_results", self.persist_results)
-
-    def run_once(self) -> Dict[str, Any]:
-        state = {
-            "watchlist": [],
-            "price_snapshots": [],
-            "alerts": [],
-            "catalysts": [],
-            "news": [],
-            "analyses": [],
-            "errors": [],
-        }
-        try:
-            state = self.graph.run(state)
-        except Exception as exc:
-            state["errors"].append(str(exc))
-        return state
-
-    def fetch_watchlist(self, state: Dict[str, Any]) -> Dict[str, Any]:
+def _fetch_watchlist(
+    market_data_service, catalyst_service, news_service,
+    ipo_service, alert_service, notification_service,
+    impact_agent, verification_agent, catalyst_agent, news_agent, ipo_agent,
+):
+    def node(state: MonitorState) -> MonitorState:
         with SessionLocal() as session:
-            state["watchlist"] = session.query(WatchlistItem).filter(WatchlistItem.active == True).all()
+            state["watchlist"] = session.query(WatchlistItem).filter(
+                WatchlistItem.active == True
+            ).all()
         return state
+    return node
 
-    def fetch_market_data(self, state: Dict[str, Any]) -> Dict[str, Any]:
+
+def _fetch_market_data(market_data_service):
+    def node(state: MonitorState) -> MonitorState:
         snapshots = []
         with SessionLocal() as session:
             for item in state["watchlist"]:
-                quote = self.market_data_service.get_quote(item.ticker)
-                snapshot = PriceSnapshot(
-                    ticker=item.ticker,
-                    price=quote["price"],
-                    previous_close=quote["previous_close"],
-                    percent_change=quote["percent_change"],
-                    currency=quote.get("currency", "USD"),
-                    captured_at=datetime.utcnow(),
-                )
-                session.add(snapshot)
-                session.commit()
-                session.refresh(snapshot)
-                snapshots.append(snapshot)
+                try:
+                    quote = market_data_service.get_quote(item.ticker)
+                    snapshot = PriceSnapshot(
+                        ticker=item.ticker,
+                        price=quote["price"],
+                        previous_close=quote["previous_close"],
+                        percent_change=quote["percent_change"],
+                        currency=quote.get("currency", "USD"),
+                        captured_at=datetime.utcnow(),
+                    )
+                    session.add(snapshot)
+                    session.commit()
+                    session.refresh(snapshot)
+                    snapshots.append(snapshot)
+                except Exception as exc:
+                    state["errors"].append(f"market_data:{item.ticker}: {exc}")
         state["price_snapshots"] = snapshots
         return state
+    return node
 
-    def detect_price_alerts(self, state: Dict[str, Any]) -> Dict[str, Any]:
+
+def _detect_price_alerts(alert_service):
+    def node(state: MonitorState) -> MonitorState:
         alerts = []
         with SessionLocal() as session:
             for item in state["watchlist"]:
-                snapshot = next((s for s in state["price_snapshots"] if s.ticker == item.ticker), None)
+                snapshot = next(
+                    (s for s in state["price_snapshots"] if s.ticker == item.ticker),
+                    None,
+                )
                 if snapshot is None:
                     continue
-                alert = self.alert_service.create_price_alert(session, item, {
+                alert = alert_service.create_price_alert(session, item, {
                     "percent_change": snapshot.percent_change,
                     "ticker": item.ticker,
                     "alert_type": "price_move",
@@ -121,11 +108,14 @@ class StockMonitorGraph:
                     alerts.append(alert)
         state["alerts"] = alerts
         return state
+    return node
 
-    def fetch_catalysts(self, state: Dict[str, Any]) -> Dict[str, Any]:
+
+def _fetch_catalysts(catalyst_service, catalyst_agent):
+    def node(state: MonitorState) -> MonitorState:
         with SessionLocal() as session:
             state["catalysts"] = [
-                self.catalyst_agent.normalize({
+                catalyst_agent.normalize({
                     "ticker": c.ticker,
                     "title": c.title,
                     "catalyst_type": c.catalyst_type,
@@ -134,15 +124,18 @@ class StockMonitorGraph:
                     "confidence": c.confidence,
                     "source": "database",
                 })
-                for c in self.catalyst_service.get_upcoming_catalysts(session)
+                for c in catalyst_service.get_upcoming_catalysts(session)
             ]
         return state
+    return node
 
-    def fetch_news(self, state: Dict[str, Any]) -> Dict[str, Any]:
+
+def _fetch_news(news_service, ipo_service, news_agent, ipo_agent):
+    def node(state: MonitorState) -> MonitorState:
         with SessionLocal() as session:
             tickers = [item.ticker for item in state["watchlist"]]
-            state["news"] = [
-                self.news_agent.normalize({
+            news = [
+                news_agent.normalize({
                     "ticker": n.ticker,
                     "sector": n.sector,
                     "title": n.title,
@@ -151,14 +144,34 @@ class StockMonitorGraph:
                     "source_url": n.source_url,
                     "published_at": n.published_at,
                 })
-                for n in self.news_service.get_news(session, tickers=tickers)
+                for n in news_service.get_news(session, tickers=tickers)
             ]
-            self.ipo_service.seed_demo_ipo(session)
+            # Seed and include IPO events as normalised news items
+            ipo_service.seed_demo_ipo(session)
+            try:
+                for event in ipo_service.get_recent_ipo_events(session):
+                    normalized = ipo_agent.normalize(event)
+                    news.append({
+                        "ticker": normalized.get("ticker"),
+                        "sector": "IPO",
+                        "title": normalized.get("title", ""),
+                        "summary": normalized.get("description", ""),
+                        "source": "IPO Monitor",
+                        "source_url": normalized.get("source_url", ""),
+                        "published_at": datetime.utcnow(),
+                        "event_type": "ipo",
+                    })
+            except Exception as exc:
+                state["errors"].append(f"ipo_fetch: {exc}")
+            state["news"] = news
         return state
+    return node
 
-    def analyze_impact(self, state: Dict[str, Any]) -> Dict[str, Any]:
-        import re as _re
 
+def _analyze_impact(impact_agent):
+    import re as _re
+
+    def node(state: MonitorState) -> MonitorState:
         analyses = []
         for alert in state["alerts"]:
             value = 0.0
@@ -168,7 +181,7 @@ class StockMonitorGraph:
                     try:
                         value = float(match.group(1))
                     except ValueError:
-                        value = 0.0
+                        pass
             payload = {
                 "related_alert_id": alert.id,
                 "ticker": alert.ticker,
@@ -177,12 +190,14 @@ class StockMonitorGraph:
                 "title": alert.title,
                 "source_url": alert.source_url,
             }
-            analysis = self.impact_agent.analyze(payload)
-            analyses.append(analysis)
+            analyses.append(impact_agent.analyze(payload))
         state["analyses"] = analyses
         return state
+    return node
 
-    def verify_analysis(self, state: Dict[str, Any]) -> Dict[str, Any]:
+
+def _verify_analysis(verification_agent):
+    def node(state: MonitorState) -> MonitorState:
         verified = []
         for analysis, alert in zip(state["analyses"], state["alerts"]):
             item = {
@@ -190,33 +205,126 @@ class StockMonitorGraph:
                 "event_date": None,
                 "title": alert.title,
             }
-            verified.append(self.verification_agent.verify(analysis, item))
+            verified.append(verification_agent.verify(analysis, item))
         state["analyses"] = verified
         return state
+    return node
 
-    def create_alerts(self, state: Dict[str, Any]) -> Dict[str, Any]:
+
+def _create_alerts(alert_service):
+    def node(state: MonitorState) -> MonitorState:
         with SessionLocal() as session:
-            saved = []
-            for analysis in state["analyses"]:
-                saved.append(self.alert_service.save_analysis(session, analysis))
-        state["analyses"] = saved
+            state["analyses"] = [
+                alert_service.save_analysis(session, a)
+                for a in state["analyses"]
+            ]
         return state
+    return node
 
-    def send_notifications(self, state: Dict[str, Any]) -> Dict[str, Any]:
+
+def _send_notifications(notification_service):
+    def node(state: MonitorState) -> MonitorState:
         for alert in state["alerts"]:
-            self.notification_service.notify({
+            notification_service.notify({
                 "title": alert.title,
                 "message": alert.message,
                 "ticker": alert.ticker,
                 "alert_type": alert.alert_type,
             })
         return state
+    return node
 
-    def persist_results(self, state: Dict[str, Any]) -> Dict[str, Any]:
+
+def _persist_results():
+    def node(state: MonitorState) -> MonitorState:
+        # Enrich summary with portfolio P&L
+        portfolio_summary = {}
+        try:
+            with SessionLocal() as session:
+                positions = session.query(PortfolioPosition).filter(
+                    PortfolioPosition.active == True
+                ).all()
+            portfolio_summary = PortfolioService().summarize(positions)
+        except Exception:
+            pass
+
         state["summary"] = {
             "watchlist_count": len(state["watchlist"]),
             "price_snapshots": len(state["price_snapshots"]),
             "alerts": len(state["alerts"]),
             "analyses": len(state["analyses"]),
+            "portfolio": portfolio_summary,
         }
         return state
+    return node
+
+
+# ── Graph builder ─────────────────────────────────────────────────────────────
+
+class StockMonitorGraph:
+    """LangGraph-based stock monitoring workflow."""
+
+    def __init__(
+        self,
+        market_data_service: MarketDataService,
+        catalyst_service: CatalystService,
+        news_service: NewsService,
+        ipo_service: IPOService,
+        alert_service: AlertService,
+        notification_service: NotificationService,
+    ):
+        self.market_data_service = market_data_service
+        self.impact_agent = ImpactAgent()
+        self.verification_agent = VerificationAgent()
+        self.catalyst_agent = CatalystAgent()
+        self.news_agent = NewsAgent()
+        self.ipo_agent = IPOAgent()
+
+        builder = StateGraph(MonitorState)
+
+        builder.add_node("fetch_watchlist",     _fetch_watchlist(
+            market_data_service, catalyst_service, news_service,
+            ipo_service, alert_service, notification_service,
+            self.impact_agent, self.verification_agent,
+            self.catalyst_agent, self.news_agent, self.ipo_agent,
+        ))
+        builder.add_node("fetch_market_data",   _fetch_market_data(market_data_service))
+        builder.add_node("detect_price_alerts", _detect_price_alerts(alert_service))
+        builder.add_node("fetch_catalysts",     _fetch_catalysts(catalyst_service, self.catalyst_agent))
+        builder.add_node("fetch_news",          _fetch_news(news_service, ipo_service, self.news_agent, self.ipo_agent))
+        builder.add_node("analyze_impact",      _analyze_impact(self.impact_agent))
+        builder.add_node("verify_analysis",     _verify_analysis(self.verification_agent))
+        builder.add_node("create_alerts",       _create_alerts(alert_service))
+        builder.add_node("send_notifications",  _send_notifications(notification_service))
+        builder.add_node("persist_results",     _persist_results())
+
+        builder.set_entry_point("fetch_watchlist")
+        builder.add_edge("fetch_watchlist",     "fetch_market_data")
+        builder.add_edge("fetch_market_data",   "detect_price_alerts")
+        builder.add_edge("detect_price_alerts", "fetch_catalysts")
+        builder.add_edge("fetch_catalysts",     "fetch_news")
+        builder.add_edge("fetch_news",          "analyze_impact")
+        builder.add_edge("analyze_impact",      "verify_analysis")
+        builder.add_edge("verify_analysis",     "create_alerts")
+        builder.add_edge("create_alerts",       "send_notifications")
+        builder.add_edge("send_notifications",  "persist_results")
+        builder.add_edge("persist_results",     END)
+
+        self._graph = builder.compile()
+
+    def run_once(self) -> Dict[str, Any]:
+        initial: MonitorState = {
+            "watchlist": [],
+            "price_snapshots": [],
+            "alerts": [],
+            "catalysts": [],
+            "news": [],
+            "analyses": [],
+            "errors": [],
+            "summary": {},
+        }
+        try:
+            return dict(self._graph.invoke(initial))
+        except Exception as exc:
+            initial["errors"].append(str(exc))
+            return dict(initial)

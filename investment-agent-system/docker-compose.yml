@@ -1,16 +1,45 @@
 version: '3.9'
+
 services:
-  app:
+  backend:
     image: python:3.11-slim
     working_dir: /app
     volumes:
       - .:/app
     ports:
       - '8000:8000'
-      - '8501:8501'
+    env_file:
+      - .env
     environment:
-      - DATABASE_URL=sqlite:///./investment_agent.db
-      - OPENAI_API_KEY=
-      - TELEGRAM_BOT_TOKEN=
-      - TELEGRAM_CHAT_ID=
-    command: bash -lc "pip install -r requirements.txt && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+      - DATABASE_URL=${DATABASE_URL:-sqlite:///./investment_agent.db}
+    command: >
+      bash -lc "
+        pip install -r requirements.txt -q &&
+        python scripts/seed_demo_data.py &&
+        uvicorn app.main:app --host 0.0.0.0 --port 8000
+      "
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  frontend:
+    image: python:3.11-slim
+    working_dir: /app
+    volumes:
+      - .:/app
+    ports:
+      - '8501:8501'
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-sqlite:///./investment_agent.db}
+    depends_on:
+      backend:
+        condition: service_healthy
+    command: >
+      bash -lc "
+        pip install -r requirements.txt -q &&
+        streamlit run frontend/streamlit_app.py --server.port 8501 --server.address 0.0.0.0
+      "
