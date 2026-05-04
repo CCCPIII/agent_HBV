@@ -1,6 +1,9 @@
 import asyncio
+import json
+import threading
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import List
 
 from fastapi import Depends, FastAPI, HTTPException
@@ -29,16 +32,48 @@ from services.news_service import NewsService
 from services.notification_service import NotificationService
 from services.portfolio_service import PortfolioService
 
-# ── Scheduler state ──────────────────────────────────────────────────────────
+# ── Persistent scheduler state ────────────────────────────────────────────────
+
+_STATE_FILE = Path("scheduler_state.json")
 
 _scheduler: dict = {
     "enabled": True,
     "interval_minutes": 30,
     "last_run_at": None,
     "next_run_at": None,
+    "last_error": None,
     "running": False,
 }
 
+# Prevents the auto-scheduler and a manual /run-once from overlapping
+_run_lock = threading.Lock()
+
+
+def _load_state() -> None:
+    """Load persisted run timestamps from disk."""
+    if _STATE_FILE.exists():
+        try:
+            data = json.loads(_STATE_FILE.read_text())
+            _scheduler["last_run_at"] = data.get("last_run_at")
+            _scheduler["last_error"] = data.get("last_error")
+        except Exception:
+            pass
+
+
+def _save_state() -> None:
+    """Persist run timestamps to disk so they survive restarts."""
+    try:
+        _STATE_FILE.write_text(
+            json.dumps({
+                "last_run_at": _scheduler["last_run_at"],
+                "last_error": _scheduler["last_error"],
+            }, indent=2)
+        )
+    except Exception:
+        pass
+
+
+# ── Monitor runner ────────────────────────────────────────────────────────────
 
 def _build_graph() -> StockMonitorGraph:
     return StockMonitorGraph(
@@ -51,31 +86,55 @@ def _build_graph() -> StockMonitorGraph:
     )
 
 
-def _do_monitor_run() -> None:
+def _do_monitor_run() -> dict:
+    """Thread-safe single monitoring cycle. Returns the plain summary dict."""
+    if not _run_lock.acquire(blocking=False):
+        return {"skipped": "another run is already in progress"}
+
     _scheduler["running"] = True
     try:
-        _build_graph().run_once()
+        state = _build_graph().run_once()
         _scheduler["last_run_at"] = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+        _scheduler["last_error"] = None
+        _save_state()
+        # Return only the serialisable summary sub-dict
+        return state.get("summary", {}) if isinstance(state, dict) else {}
+    except Exception as exc:
+        _scheduler["last_error"] = str(exc)
+        _save_state()
+        raise
     finally:
         _scheduler["running"] = False
+        _run_lock.release()
 
+
+# ── Background scheduler loop ─────────────────────────────────────────────────
 
 async def _scheduler_loop() -> None:
-    # Brief delay so the server is fully up before first auto-run
-    await asyncio.sleep(15)
+    """Asyncio background task. Uses short sleep chunks so interval changes apply quickly."""
+    await asyncio.sleep(15)          # brief startup grace period
+
+    elapsed = 0
     while True:
         interval = _scheduler["interval_minutes"]
+
         if not _scheduler["enabled"] or interval <= 0:
-            await asyncio.sleep(60)
+            elapsed = 0
+            await asyncio.sleep(30)
             continue
-        loop = asyncio.get_event_loop()
-        try:
-            await loop.run_in_executor(None, _do_monitor_run)
-        except Exception:
-            pass
-        next_run = datetime.utcnow() + timedelta(minutes=interval)
-        _scheduler["next_run_at"] = next_run.strftime("%Y-%m-%dT%H:%M:%SZ")
-        await asyncio.sleep(interval * 60)
+
+        if elapsed >= interval * 60:
+            elapsed = 0
+            loop = asyncio.get_event_loop()
+            try:
+                await loop.run_in_executor(None, _do_monitor_run)
+            except Exception:
+                pass
+            next_run = datetime.utcnow() + timedelta(minutes=interval)
+            _scheduler["next_run_at"] = next_run.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        await asyncio.sleep(30)
+        elapsed += 30
 
 
 # ── App with lifespan ────────────────────────────────────────────────────────
@@ -83,8 +142,18 @@ async def _scheduler_loop() -> None:
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     Base.metadata.create_all(bind=engine)
+    _load_state()                                        # restore last_run_at from disk
     _scheduler["interval_minutes"] = settings.monitor_interval_minutes
     _scheduler["enabled"] = settings.monitor_interval_minutes > 0
+    # Pre-calculate next_run_at from the loaded last_run_at (if available)
+    if _scheduler["enabled"] and _scheduler["last_run_at"]:
+        try:
+            last = datetime.strptime(_scheduler["last_run_at"], "%Y-%m-%dT%H:%M:%SZ")
+            nxt = last + timedelta(minutes=_scheduler["interval_minutes"])
+            # If next_run is in the past we'll just run soon anyway, but still show something
+            _scheduler["next_run_at"] = nxt.strftime("%Y-%m-%dT%H:%M:%SZ")
+        except Exception:
+            pass
     task = asyncio.create_task(_scheduler_loop())
     yield
     task.cancel()
@@ -104,14 +173,14 @@ app.add_middleware(
 )
 
 
-# ── Health ────────────────────────────────────────────────────────────────────
+# ── Health ─────────────────────────────────────────────────────────────────────
 
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
 
 
-# ── Scheduler ─────────────────────────────────────────────────────────────────
+# ── Scheduler ──────────────────────────────────────────────────────────────────
 
 @app.get("/monitor/scheduler")
 def get_scheduler_status() -> dict:
@@ -121,17 +190,17 @@ def get_scheduler_status() -> dict:
         "running": _scheduler["running"],
         "last_run_at": _scheduler["last_run_at"],
         "next_run_at": _scheduler["next_run_at"],
+        "last_error": _scheduler["last_error"],
     }
 
 
 @app.post("/monitor/scheduler")
 def update_scheduler(body: dict) -> dict:
-    """Update scheduler. Pass {interval_minutes: N} (0 to disable)."""
+    """Update scheduler interval. Pass {interval_minutes: N}. 0 to disable."""
     if "interval_minutes" in body:
-        minutes = int(body["interval_minutes"])
+        minutes = max(0, int(body["interval_minutes"]))
         _scheduler["interval_minutes"] = minutes
         _scheduler["enabled"] = minutes > 0
-        # Write to .env so it persists across restarts
         settings.update_env({"MONITOR_INTERVAL_MINUTES": str(minutes)})
         if _scheduler["enabled"]:
             next_run = datetime.utcnow() + timedelta(minutes=minutes)
@@ -141,7 +210,7 @@ def update_scheduler(body: dict) -> dict:
     return get_scheduler_status()
 
 
-# ── Config ────────────────────────────────────────────────────────────────────
+# ── Config ─────────────────────────────────────────────────────────────────────
 
 @app.get("/config/models")
 def config_models() -> dict:
@@ -159,14 +228,14 @@ def get_settings() -> dict:
 @app.post("/config/settings")
 def update_settings(updates: dict) -> dict:
     updated = settings.update_env(updates)
-    # If interval changed, sync scheduler
+    # Sync scheduler if interval changed via settings panel
     if "MONITOR_INTERVAL_MINUTES" in [k.upper() for k in updates]:
         _scheduler["interval_minutes"] = settings.monitor_interval_minutes
         _scheduler["enabled"] = settings.monitor_interval_minutes > 0
     return {"updated": updated, "active_provider": settings.active_llm_provider}
 
 
-# ── News ──────────────────────────────────────────────────────────────────────
+# ── News ───────────────────────────────────────────────────────────────────────
 
 @app.get("/news/live/{ticker}")
 def live_news(ticker: str) -> List[dict]:
@@ -200,7 +269,6 @@ def market_news() -> List[dict]:
     except Exception:
         live = []
 
-    # Also include stored IPO-related news from DB
     from app.db import SessionLocal
     stored = []
     try:
@@ -230,8 +298,7 @@ def market_news() -> List[dict]:
     except Exception:
         pass
 
-    # Merge, deduplicate by title
-    seen = set()
+    seen: set = set()
     merged = []
     for item in live + stored:
         t = item.get("title", "")
@@ -242,7 +309,7 @@ def market_news() -> List[dict]:
     return merged[:30]
 
 
-# ── Watchlist ─────────────────────────────────────────────────────────────────
+# ── Watchlist ──────────────────────────────────────────────────────────────────
 
 @app.get("/watchlist", response_model=List[WatchlistItemRead])
 def list_watchlist(session: Session = Depends(get_session)) -> List[WatchlistItemRead]:
@@ -268,7 +335,7 @@ def delete_watchlist(item_id: int, session: Session = Depends(get_session)) -> d
     return {"deleted": item_id}
 
 
-# ── Portfolio ─────────────────────────────────────────────────────────────────
+# ── Portfolio ──────────────────────────────────────────────────────────────────
 
 @app.get("/portfolio", response_model=List[PortfolioPositionRead])
 def list_portfolio(session: Session = Depends(get_session)) -> List[PortfolioPositionRead]:
@@ -331,24 +398,28 @@ def portfolio_summary(session: Session = Depends(get_session)) -> List[dict]:
     return result
 
 
-# ── Market data ───────────────────────────────────────────────────────────────
+# ── Market data ────────────────────────────────────────────────────────────────
 
 @app.get("/prices/{ticker}")
 def get_price(ticker: str) -> dict:
-    service = MarketDataService()
-    return service.get_quote(ticker)
+    return MarketDataService().get_quote(ticker)
 
 
-# ── Monitor ───────────────────────────────────────────────────────────────────
+# ── Monitor ────────────────────────────────────────────────────────────────────
 
 @app.post("/monitor/run-once")
 def run_monitor_once() -> dict:
-    result = _build_graph().run_once()
-    _scheduler["last_run_at"] = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-    return {"status": "completed", "summary": result}
+    """Trigger one monitoring cycle. Blocked if a run is already in progress."""
+    if _scheduler["running"]:
+        return {"status": "busy", "message": "A monitoring cycle is already running."}
+    try:
+        summary = _do_monitor_run()
+        return {"status": "completed", "summary": summary}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
 
 
-# ── Alerts / catalysts / news / analyses ──────────────────────────────────────
+# ── Alerts / catalysts / news / analyses ───────────────────────────────────────
 
 @app.get("/alerts", response_model=List[AlertRead])
 def list_alerts(session: Session = Depends(get_session)) -> List[AlertRead]:
@@ -376,7 +447,7 @@ def list_analyses(session: Session = Depends(get_session)) -> List[AgentAnalysis
     )
 
 
-# ── Dashboard ─────────────────────────────────────────────────────────────────
+# ── Dashboard ──────────────────────────────────────────────────────────────────
 
 @app.get("/dashboard/summary")
 def dashboard_summary(session: Session = Depends(get_session)) -> dict:
@@ -402,5 +473,6 @@ def dashboard_summary(session: Session = Depends(get_session)) -> dict:
             "interval_minutes": _scheduler["interval_minutes"],
             "last_run_at": _scheduler["last_run_at"],
             "next_run_at": _scheduler["next_run_at"],
+            "last_error": _scheduler["last_error"],
         },
     }
