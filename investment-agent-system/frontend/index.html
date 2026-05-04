@@ -1195,11 +1195,58 @@ async function loadAll() {
   loadLiveNews();
 }
 
-// Auto-refresh scheduler status every 60s
-setInterval(loadScheduler, 60_000);
+// ── Auto-refresh: poll scheduler every 30s, reload data when a run finishes ──
+let _lastRunAt = null;
+
+async function _pollScheduler() {
+  try {
+    const s = await api('/monitor/scheduler');
+    // Update scheduler UI unconditionally
+    const badge = $('schedulerBadge');
+    if (badge) {
+      if (s.running) {
+        badge.textContent = '运行中...';
+        badge.style.cssText = 'background:rgba(245,158,11,0.15);color:#fcd34d;border:1px solid rgba(245,158,11,0.3)';
+      } else if (s.enabled) {
+        badge.textContent = '自动运行中';
+        badge.style.cssText = 'background:rgba(34,197,94,0.15);color:#86efac;border:1px solid rgba(34,197,94,0.3)';
+      } else {
+        badge.textContent = '已关闭';
+        badge.style.cssText = 'background:rgba(148,163,184,0.1);color:var(--muted);border:1px solid var(--border)';
+      }
+      $('sch-interval').textContent = s.enabled ? `每 ${s.interval_minutes} 分钟` : '已禁用';
+      $('sch-last').textContent = s.last_run_at ? shortDate(s.last_run_at) + ' ' + s.last_run_at.slice(11,16) + ' UTC' : '尚未运行';
+      $('sch-next').textContent = s.next_run_at ? shortDate(s.next_run_at) + ' ' + s.next_run_at.slice(11,16) + ' UTC' : '—';
+      const errEl = $('sch-error');
+      if (errEl) { errEl.style.display = s.last_error ? 'block' : 'none'; if (s.last_error) errEl.textContent = '⚠ 上次错误: ' + s.last_error.slice(0,120); }
+    }
+    // Detect a newly completed run → refresh all data
+    if (_lastRunAt !== null && s.last_run_at && s.last_run_at !== _lastRunAt) {
+      toast('监控周期已完成，正在刷新数据…');
+      await Promise.all([
+        loadSummary(), loadWatchlist(), loadPortfolio(),
+        loadAlerts(), loadAnalysis(),
+      ]);
+    }
+    _lastRunAt = s.last_run_at;
+    // Also update the overview scheduler metric
+    $('m-scheduler').innerHTML = s.enabled ? '<span class="pos">ON</span>' : '<span class="neu">OFF</span>';
+    $('m-scheduler-next').textContent = s.next_run_at ? '下次 ' + s.next_run_at.slice(11,16) : (s.enabled ? '等待中' : '已关闭');
+  } catch {}
+}
+
+setInterval(_pollScheduler, 30_000);
 
 $('refreshAll').onclick = () => loadAll();
-window.addEventListener('load', loadAll);
+window.addEventListener('load', async () => {
+  await loadAll();
+  // After the initial full load, seed _lastRunAt from the API so the
+  // first 30-second poll doesn't trigger a spurious reload.
+  try {
+    const s = await api('/monitor/scheduler');
+    _lastRunAt = s.last_run_at;
+  } catch {}
+});
 </script>
 </body>
 </html>
