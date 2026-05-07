@@ -400,6 +400,135 @@ def portfolio_summary(session: Session = Depends(get_session)) -> List[dict]:
 
 # ── Market data ────────────────────────────────────────────────────────────────
 
+@app.get("/prices/{ticker}/history")
+def get_price_history(ticker: str, period: str = "1mo") -> List[dict]:
+    """Return daily OHLC history for a ticker (default last 1 month)."""
+    allowed = {"5d", "1mo", "3mo", "6mo", "1y", "2y"}
+    if period not in allowed:
+        period = "1mo"
+    try:
+        import yfinance as yf
+        hist = yf.Ticker(ticker.upper()).history(period=period, interval="1d")
+        if hist.empty:
+            return []
+        result = []
+        for ts, row in hist.iterrows():
+            result.append({
+                "date": ts.strftime("%Y-%m-%d"),
+                "open":  round(float(row["Open"]),  4),
+                "high":  round(float(row["High"]),  4),
+                "low":   round(float(row["Low"]),   4),
+                "close": round(float(row["Close"]), 4),
+                "volume": int(row.get("Volume", 0) or 0),
+            })
+        return result
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/data/backfill")
+def backfill_historical_data(body: dict = {}) -> dict:
+    """
+    Seed historical news + price snapshots for all active watchlist tickers.
+    Useful on first run when the DB is empty.
+    """
+    import yfinance as yf
+    from app.db import SessionLocal
+
+    period = str(body.get("period", "1mo"))
+    allowed = {"5d", "1mo", "3mo"}
+    if period not in allowed:
+        period = "1mo"
+
+    saved_news = 0
+    saved_snapshots = 0
+    errors = []
+
+    with SessionLocal() as session:
+        tickers = [
+            w.ticker for w in
+            session.query(WatchlistItem).filter(WatchlistItem.active == True).all()
+        ]
+        seen_titles = {r[0] for r in session.query(NewsItem.title).all()}
+
+        for ticker in tickers:
+            try:
+                t = yf.Ticker(ticker)
+
+                # ── News (recent articles from yfinance) ─────────────────────
+                for item in (t.news or [])[:10]:
+                    content = item.get("content", {})
+                    title = content.get("title") or item.get("title", "")
+                    if not title or title in seen_titles:
+                        continue
+                    seen_titles.add(title)
+                    summary = (content.get("summary") or content.get("description") or "")[:500]
+                    pub_raw = content.get("pubDate") or item.get("providerPublishTime")
+                    try:
+                        pub_dt = (
+                            datetime.fromisoformat(str(pub_raw)) if isinstance(pub_raw, str)
+                            else datetime.utcfromtimestamp(int(pub_raw)) if pub_raw
+                            else datetime.utcnow()
+                        )
+                    except Exception:
+                        pub_dt = datetime.utcnow()
+                    session.add(NewsItem(
+                        ticker=ticker,
+                        sector=None,
+                        title=title,
+                        summary=summary,
+                        source=(content.get("provider") or {}).get("displayName", "") or item.get("publisher", "Yahoo Finance"),
+                        source_url=(content.get("canonicalUrl") or {}).get("url", "") or item.get("link", ""),
+                        published_at=pub_dt,
+                    ))
+                    saved_news += 1
+
+                # ── Historical price snapshots ────────────────────────────────
+                from app.models import PriceSnapshot
+                hist = t.history(period=period, interval="1d")
+                for ts, row in hist.iterrows():
+                    close = float(row["Close"])
+                    prev_close = close  # fallback
+                    try:
+                        idx = hist.index.get_loc(ts)
+                        if idx > 0:
+                            prev_close = float(hist.iloc[idx - 1]["Close"])
+                    except Exception:
+                        pass
+                    pct = ((close - prev_close) / prev_close * 100) if prev_close else 0.0
+                    captured = ts.to_pydatetime().replace(tzinfo=None)
+                    # Skip if we already have a snapshot for this ticker on this day
+                    exists = session.query(PriceSnapshot).filter(
+                        PriceSnapshot.ticker == ticker.upper(),
+                        PriceSnapshot.captured_at >= captured.replace(hour=0, minute=0, second=0),
+                        PriceSnapshot.captured_at < captured.replace(hour=23, minute=59, second=59),
+                    ).first()
+                    if not exists:
+                        session.add(PriceSnapshot(
+                            ticker=ticker.upper(),
+                            price=close,
+                            previous_close=prev_close,
+                            percent_change=round(pct, 4),
+                            currency="USD",
+                            captured_at=captured,
+                        ))
+                        saved_snapshots += 1
+
+                session.commit()
+            except Exception as exc:
+                errors.append(f"{ticker}: {exc}")
+
+    return {
+        "status": "done",
+        "period": period,
+        "saved_news": saved_news,
+        "saved_snapshots": saved_snapshots,
+        "errors": errors,
+    }
+
+
+
+
 @app.get("/prices/{ticker}")
 def get_price(ticker: str) -> dict:
     return MarketDataService().get_quote(ticker)

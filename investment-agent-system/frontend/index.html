@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Investment Agent System</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <style>
     :root {
       --bg: #060912;
@@ -220,6 +221,23 @@
     /* ── Empty state ── */
     .empty { text-align: center; color: var(--muted); padding: 36px 20px; font-size: 0.9rem; }
 
+    /* ── Chart ── */
+    .chart-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+    .chart-tab {
+      padding: 5px 14px; border-radius: 20px; border: 1px solid var(--border);
+      background: none; color: var(--muted); cursor: pointer; font-size: .82rem;
+      transition: all .15s;
+    }
+    .chart-tab:hover { border-color: rgba(109,40,217,.5); color: var(--text); }
+    .chart-tab.active { background: rgba(109,40,217,.2); border-color: rgba(109,40,217,.5); color: white; }
+    .period-tabs { display: flex; gap: 4px; }
+    .period-tab {
+      padding: 3px 10px; border-radius: 8px; border: 1px solid var(--border);
+      background: none; color: var(--muted); cursor: pointer; font-size: .75rem;
+      transition: all .15s;
+    }
+    .period-tab.active { background: rgba(109,40,217,.15); border-color: rgba(109,40,217,.4); color: #a78bfa; }
+
     /* ── Toast ── */
     #toast {
       position: fixed; bottom: 24px; right: 24px; z-index: 999;
@@ -368,6 +386,27 @@
           <div class="table-wrap" id="portfolioTable"><div class="empty">暂无数据</div></div>
         </div>
       </div>
+
+      <!-- Trend chart -->
+      <div class="card" id="trendCard" style="display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px">
+          <div>
+            <div class="card-title" style="margin-bottom:4px">📈 持仓走势</div>
+            <div class="chart-tabs" id="chartTabs"></div>
+          </div>
+          <div class="period-tabs">
+            <button class="period-tab active" data-period="5d">5天</button>
+            <button class="period-tab" data-period="1mo">1月</button>
+            <button class="period-tab" data-period="3mo">3月</button>
+            <button class="period-tab" data-period="6mo">6月</button>
+            <button class="period-tab" data-period="1y">1年</button>
+          </div>
+        </div>
+        <div style="position:relative;height:280px">
+          <canvas id="priceChart"></canvas>
+        </div>
+        <div id="chartMeta" style="display:flex;gap:20px;margin-top:12px;flex-wrap:wrap"></div>
+      </div>
     </section>
 
     <!-- ── Alerts ── -->
@@ -448,6 +487,23 @@
         <div class="card">
           <div class="card-title">运行结果</div>
           <pre id="monitorResult">尚未运行。点击左侧按钮开始。</pre>
+        </div>
+      </div>
+
+      <!-- Historical backfill card -->
+      <div class="card">
+        <div class="card-title">🗄️ 初始化历史数据</div>
+        <p style="font-size:.87rem;color:var(--muted);line-height:1.6;margin-bottom:14px;">
+          首次使用时，数据库为空，新闻和价格记录从运行那一刻开始。点击此处补抓历史行情和新闻，填充过去一段时间的数据。
+        </p>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <select id="backfillPeriod" style="background:var(--panel-alt);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:10px;font-size:.88rem;outline:none">
+            <option value="5d">最近 5 天</option>
+            <option value="1mo" selected>最近 1 个月</option>
+            <option value="3mo">最近 3 个月</option>
+          </select>
+          <button onclick="runBackfill()" style="padding:9px 20px;background:linear-gradient(135deg,#0891b2,#0e7490);border:none;border-radius:10px;color:white;font-weight:600;cursor:pointer;font-size:.88rem" id="backfillBtn">补抓历史数据</button>
+          <span id="backfillStatus" style="font-size:.84rem;color:var(--muted)"></span>
         </div>
       </div>
 
@@ -764,6 +820,7 @@ async function loadPortfolio() {
     if (!positions.length) {
       $('portfolioTable').innerHTML = '<div class="empty">暂无持仓</div>';
       $('totalCost').textContent = '—'; $('totalValue').textContent = '—'; $('totalPnl').textContent = '—';
+      $('trendCard').style.display = 'none';
       return;
     }
     const totalCost = positions.reduce((s, p) => s + (p.cost_basis || 0), 0);
@@ -790,6 +847,10 @@ async function loadPortfolio() {
         <td><button class="btn-del" onclick="delPosition(${p.id})">✕</button></td>
       </tr>`).join('')}</tbody>
     </table>`;
+
+    // Show trend chart section
+    $('trendCard').style.display = 'block';
+    _initChartTabs(positions);
   } catch (e) { toast('加载持仓失败: ' + e.message, 'error'); }
 }
 
@@ -1182,6 +1243,160 @@ async function saveGroup(keys) {
     loadModels();
     loadSettings();
   } catch (e) { toast('保存失败: ' + e.message, 'error'); }
+}
+
+// ── Portfolio trend chart ──────────────────────────────────────────────────
+let _chartInstance = null;
+let _chartTickers = [];
+let _activeTicker = null;
+let _activePeriod = '1mo';
+
+function _buildChart(labels, prices, avgCost, ticker) {
+  const canvas = $('priceChart');
+  if (_chartInstance) { _chartInstance.destroy(); _chartInstance = null; }
+
+  const first = prices[0] ?? 0;
+  const gradColors = prices.map(p => p >= first ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)');
+  const lineColor = prices[prices.length - 1] >= first ? '#22c55e' : '#ef4444';
+
+  const datasets = [{
+    label: ticker,
+    data: prices,
+    borderColor: lineColor,
+    borderWidth: 2,
+    pointRadius: 0,
+    pointHoverRadius: 4,
+    tension: 0.3,
+    fill: true,
+    backgroundColor: (ctx) => {
+      const chart = ctx.chart;
+      const {ctx: c, chartArea} = chart;
+      if (!chartArea) return 'transparent';
+      const grad = c.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+      grad.addColorStop(0, lineColor.replace(')', ',0.2)').replace('rgb', 'rgba'));
+      grad.addColorStop(1, 'transparent');
+      return grad;
+    },
+  }];
+
+  if (avgCost > 0) {
+    datasets.push({
+      label: '成本价',
+      data: Array(labels.length).fill(avgCost),
+      borderColor: 'rgba(245,158,11,0.6)',
+      borderWidth: 1.5,
+      borderDash: [4, 4],
+      pointRadius: 0,
+      fill: false,
+    });
+  }
+
+  _chartInstance = new Chart(canvas, {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: avgCost > 0, labels: { color: '#8a9ab8', font: { size: 11 } } },
+        tooltip: {
+          backgroundColor: '#0f1623',
+          borderColor: 'rgba(148,163,184,0.15)',
+          borderWidth: 1,
+          titleColor: '#e2e8f0',
+          bodyColor: '#8a9ab8',
+          callbacks: {
+            label: ctx => ` ${ctx.dataset.label}: ${Number(ctx.parsed.y).toFixed(2)}`,
+          },
+        },
+      },
+      scales: {
+        x: {
+          ticks: { color: '#8a9ab8', maxTicksLimit: 8, font: { size: 10 } },
+          grid: { color: 'rgba(148,163,184,0.06)' },
+        },
+        y: {
+          ticks: { color: '#8a9ab8', font: { size: 10 } },
+          grid: { color: 'rgba(148,163,184,0.06)' },
+        },
+      },
+    },
+  });
+}
+
+async function loadTickerChart(ticker, period, avgCost = 0) {
+  _activeTicker = ticker;
+  _activePeriod = period;
+
+  // Highlight active tab & period
+  document.querySelectorAll('.chart-tab').forEach(b => b.classList.toggle('active', b.dataset.ticker === ticker));
+  document.querySelectorAll('.period-tab').forEach(b => b.classList.toggle('active', b.dataset.period === period));
+
+  try {
+    const hist = await api(`/prices/${encodeURIComponent(ticker)}/history?period=${period}`);
+    if (!hist.length) {
+      $('chartMeta').innerHTML = '<span style="color:var(--muted)">暂无历史数据</span>';
+      return;
+    }
+    const labels = hist.map(d => d.date);
+    const prices = hist.map(d => d.close);
+    _buildChart(labels, prices, avgCost, ticker);
+
+    // Stats below chart
+    const first = prices[0], last = prices[prices.length - 1];
+    const chg = last - first, chgPct = first ? chg / first * 100 : 0;
+    const hi = Math.max(...prices), lo = Math.min(...prices);
+    const cls = chg >= 0 ? 'pos' : 'neg';
+    $('chartMeta').innerHTML = `
+      <span style="font-size:.8rem;color:var(--muted)">区间涨跌: <b class="${cls}">${chg >= 0 ? '+' : ''}${chgPct.toFixed(2)}%</b></span>
+      <span style="font-size:.8rem;color:var(--muted)">最高: <b style="color:var(--text)">${hi.toFixed(2)}</b></span>
+      <span style="font-size:.8rem;color:var(--muted)">最低: <b style="color:var(--text)">${lo.toFixed(2)}</b></span>
+      <span style="font-size:.8rem;color:var(--muted)">当前: <b style="color:var(--text)">${last.toFixed(2)}</b></span>
+    `;
+  } catch (e) {
+    $('chartMeta').innerHTML = `<span style="color:var(--muted)">图表加载失败: ${e.message}</span>`;
+  }
+}
+
+function _initChartTabs(positions) {
+  _chartTickers = positions.map(p => ({ ticker: p.ticker, avgCost: p.average_cost }));
+  $('chartTabs').innerHTML = _chartTickers.map(p =>
+    `<button class="chart-tab" data-ticker="${p.ticker}" onclick="loadTickerChart('${p.ticker}', _activePeriod, ${p.avgCost})">${p.ticker}</button>`
+  ).join('');
+
+  document.querySelectorAll('.period-tab').forEach(btn => {
+    btn.onclick = () => {
+      if (_activeTicker) {
+        const ac = _chartTickers.find(t => t.ticker === _activeTicker)?.avgCost ?? 0;
+        loadTickerChart(_activeTicker, btn.dataset.period, ac);
+      }
+    };
+  });
+
+  // Auto-load first position
+  if (_chartTickers.length) {
+    loadTickerChart(_chartTickers[0].ticker, _activePeriod, _chartTickers[0].avgCost);
+  }
+}
+
+// ── Historical backfill ────────────────────────────────────────────────────
+async function runBackfill() {
+  const period = $('backfillPeriod').value;
+  $('backfillBtn').disabled = true;
+  $('backfillStatus').textContent = '补抓中，请稍候…';
+  try {
+    const res = await api('/data/backfill', 'POST', { period });
+    $('backfillStatus').textContent =
+      `✅ 完成：新增 ${res.saved_snapshots} 条价格记录、${res.saved_news} 条新闻${res.errors?.length ? '（部分失败）' : ''}`;
+    toast('历史数据已补抓完成');
+    loadAll();
+  } catch (e) {
+    $('backfillStatus').textContent = '❌ 失败: ' + e.message;
+    toast('补抓失败: ' + e.message, 'error');
+  } finally {
+    $('backfillBtn').disabled = false;
+  }
 }
 
 // ── Load all ───────────────────────────────────────────────────────────────

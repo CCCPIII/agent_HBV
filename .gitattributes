@@ -1,0 +1,24 @@
+# Force LF for all text files (prevents CRLF issues on Windows)
+* text=auto eol=lf
+
+# Shell scripts must always be LF
+*.sh text eol=lf
+
+# Python and config files
+*.py text eol=lf
+*.env text eol=lf
+*.example text eol=lf
+*.txt text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.js text eol=lf
+
+# Binary files - no conversion
+*.db binary
+*.png binary
+*.jpg binary
+*.ico binary
