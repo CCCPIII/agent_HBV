@@ -15,19 +15,28 @@ class PortfolioService:
         total_cost = 0.0
         details = []
         for position in positions:
-            quote = self.market_data_service.get_quote(position.ticker)
-            current_value = quote["price"] * position.quantity
+            try:
+                quote = self.market_data_service.get_quote(position.ticker)
+                current_price = quote["price"]
+            except Exception:
+                current_price = None
             cost_value = position.average_cost * position.quantity
-            total_value += current_value
             total_cost += cost_value
+            if current_price is not None:
+                current_value = current_price * position.quantity
+                total_value += current_value
+                unrealized_pnl = current_value - cost_value
+            else:
+                current_value = None
+                unrealized_pnl = None
             details.append(
                 {
                     "ticker": position.ticker,
                     "quantity": position.quantity,
-                    "current_price": quote["price"],
+                    "current_price": current_price,
                     "market_value": current_value,
                     "cost_basis": cost_value,
-                    "unrealized_pnl": current_value - cost_value,
+                    "unrealized_pnl": unrealized_pnl,
                 }
             )
         return {

@@ -97,15 +97,18 @@ def _detect_price_alerts(alert_service):
                 )
                 if snapshot is None:
                     continue
-                alert = alert_service.create_price_alert(session, item, {
-                    "percent_change": snapshot.percent_change,
-                    "ticker": item.ticker,
-                    "alert_type": "price_move",
-                    "value": snapshot.percent_change,
-                    "title": f"{item.ticker} price move",
-                })
-                if alert:
-                    alerts.append(alert)
+                try:
+                    alert = alert_service.create_price_alert(session, item, {
+                        "percent_change": snapshot.percent_change,
+                        "ticker": item.ticker,
+                        "alert_type": "price_move",
+                        "value": snapshot.percent_change,
+                        "title": f"{item.ticker} price move",
+                    })
+                    if alert:
+                        alerts.append(alert)
+                except Exception as exc:
+                    state["errors"].append(f"price_alert:{item.ticker}: {exc}")
         state["alerts"] = alerts
         return state
     return node
@@ -134,6 +137,61 @@ def _fetch_news(news_service, ipo_service, news_agent, ipo_agent):
     def node(state: MonitorState) -> MonitorState:
         with SessionLocal() as session:
             tickers = [item.ticker for item in state["watchlist"]]
+
+            # ── Pull live news from yfinance and persist new items ──────────
+            try:
+                import yfinance as yf
+                seen_titles = {
+                    r[0] for r in session.query(NewsItem.title).all()
+                }
+                for ticker in tickers[:5]:          # limit to avoid rate-limiting
+                    try:
+                        raw = yf.Ticker(ticker).news or []
+                        for item in raw[:5]:
+                            content = item.get("content", {})
+                            title = content.get("title") or item.get("title", "")
+                            if not title or title in seen_titles:
+                                continue
+                            seen_titles.add(title)
+                            summary = (
+                                content.get("summary")
+                                or content.get("description")
+                                or ""
+                            )[:500]
+                            source = (
+                                (content.get("provider") or {}).get("displayName", "")
+                                or item.get("publisher", "Yahoo Finance")
+                            )
+                            url = (
+                                (content.get("canonicalUrl") or {}).get("url", "")
+                                or item.get("link", "")
+                            )
+                            pub_raw = content.get("pubDate") or item.get("providerPublishTime")
+                            try:
+                                pub_dt = (
+                                    datetime.fromisoformat(str(pub_raw))
+                                    if isinstance(pub_raw, str)
+                                    else datetime.utcfromtimestamp(int(pub_raw))
+                                    if pub_raw else datetime.utcnow()
+                                )
+                            except Exception:
+                                pub_dt = datetime.utcnow()
+                            session.add(NewsItem(
+                                ticker=ticker,
+                                sector=None,
+                                title=title,
+                                summary=summary,
+                                source=source,
+                                source_url=url,
+                                published_at=pub_dt,
+                            ))
+                        session.commit()
+                    except Exception:
+                        pass
+            except Exception as exc:
+                state["errors"].append(f"live_news_fetch: {exc}")
+
+            # ── Build news state from DB (includes freshly saved items) ─────
             news = [
                 news_agent.normalize({
                     "ticker": n.ticker,
@@ -146,7 +204,8 @@ def _fetch_news(news_service, ipo_service, news_agent, ipo_agent):
                 })
                 for n in news_service.get_news(session, tickers=tickers)
             ]
-            # Seed and include IPO events as normalised news items
+
+            # ── Add IPO events ───────────────────────────────────────────────
             ipo_service.seed_demo_ipo(session)
             try:
                 for event in ipo_service.get_recent_ipo_events(session):
@@ -163,6 +222,7 @@ def _fetch_news(news_service, ipo_service, news_agent, ipo_agent):
                     })
             except Exception as exc:
                 state["errors"].append(f"ipo_fetch: {exc}")
+
             state["news"] = news
         return state
     return node
@@ -173,6 +233,8 @@ def _analyze_impact(impact_agent):
 
     def node(state: MonitorState) -> MonitorState:
         analyses = []
+
+        # ── Analyze price alerts ─────────────────────────────────────────────
         for alert in state["alerts"]:
             value = 0.0
             if alert.message:
@@ -182,15 +244,35 @@ def _analyze_impact(impact_agent):
                         value = float(match.group(1))
                     except ValueError:
                         pass
-            payload = {
+            result = impact_agent.analyze({
                 "related_alert_id": alert.id,
                 "ticker": alert.ticker,
                 "alert_type": alert.alert_type,
                 "value": value,
                 "title": alert.title,
                 "source_url": alert.source_url,
-            }
-            analyses.append(impact_agent.analyze(payload))
+            })
+            # Carry context for _verify_analysis (stripped before DB save)
+            result["_ctx_source_url"] = alert.source_url or ""
+            result["_ctx_title"] = alert.title or ""
+            analyses.append(result)
+
+        # ── Analyze recent news when no price alerts fired ───────────────────
+        if not state["alerts"]:
+            for news_item in state["news"][:5]:
+                result = impact_agent.analyze({
+                    "related_alert_id": None,
+                    "ticker": news_item.get("ticker"),
+                    "alert_type": news_item.get("event_type", "news"),
+                    "value": 0.0,
+                    "title": news_item.get("title", ""),
+                    "summary": news_item.get("summary", ""),
+                    "source_url": news_item.get("source_url", ""),
+                })
+                result["_ctx_source_url"] = news_item.get("source_url", "")
+                result["_ctx_title"] = news_item.get("title", "")
+                analyses.append(result)
+
         state["analyses"] = analyses
         return state
     return node
@@ -199,13 +281,18 @@ def _analyze_impact(impact_agent):
 def _verify_analysis(verification_agent):
     def node(state: MonitorState) -> MonitorState:
         verified = []
-        for analysis, alert in zip(state["analyses"], state["alerts"]):
+        for analysis in state["analyses"]:
+            # Pop context keys so they don't reach the DB
             item = {
-                "source_url": alert.source_url,
+                "source_url": analysis.pop("_ctx_source_url", ""),
                 "event_date": None,
-                "title": alert.title,
+                "title": analysis.pop("_ctx_title", ""),
             }
-            verified.append(verification_agent.verify(analysis, item))
+            try:
+                verified.append(verification_agent.verify(analysis, item))
+            except Exception as exc:
+                analysis["reasoning"] = analysis.get("reasoning", "") + f" [verify error: {exc}]"
+                verified.append(analysis)
         state["analyses"] = verified
         return state
     return node
@@ -213,11 +300,14 @@ def _verify_analysis(verification_agent):
 
 def _create_alerts(alert_service):
     def node(state: MonitorState) -> MonitorState:
+        saved = []
         with SessionLocal() as session:
-            state["analyses"] = [
-                alert_service.save_analysis(session, a)
-                for a in state["analyses"]
-            ]
+            for a in state["analyses"]:
+                try:
+                    saved.append(alert_service.save_analysis(session, a))
+                except Exception as exc:
+                    state["errors"].append(f"save_analysis:{a.get('ticker','?')}: {exc}")
+        state["analyses"] = saved
         return state
     return node
 
