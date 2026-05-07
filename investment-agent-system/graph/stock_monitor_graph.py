@@ -133,8 +133,58 @@ def _fetch_catalysts(catalyst_service, catalyst_agent):
     return node
 
 
+def _parse_yf_news_item(raw: dict, ticker: str) -> dict:
+    """Normalise a single yfinance news dict into a flat dict regardless of API version."""
+    content = raw.get("content") or {}
+
+    # title: new API has content.title, old API has top-level title
+    title = (content.get("title") or raw.get("title") or "").strip()
+
+    # summary: new API → content.summary / content.description; old API has no summary
+    summary = (
+        content.get("summary") or content.get("description") or ""
+    ).strip()[:500]
+
+    # source name
+    source = (
+        (content.get("provider") or {}).get("displayName")
+        or raw.get("publisher")
+        or "Yahoo Finance"
+    ).strip()[:128]
+
+    # url
+    url = (
+        (content.get("canonicalUrl") or {}).get("url")
+        or raw.get("link")
+        or ""
+    ).strip()
+
+    # published timestamp
+    pub_raw = content.get("pubDate") or raw.get("providerPublishTime")
+    try:
+        if isinstance(pub_raw, str):
+            pub_dt = datetime.fromisoformat(pub_raw.replace("Z", "+00:00")).replace(tzinfo=None)
+        elif pub_raw:
+            pub_dt = datetime.utcfromtimestamp(int(pub_raw))
+        else:
+            pub_dt = datetime.utcnow()
+    except Exception:
+        pub_dt = datetime.utcnow()
+
+    return {
+        "ticker": ticker,
+        "title": title,
+        "summary": summary or title[:200],   # fallback so NOT NULL is satisfied
+        "source": source,
+        "source_url": url,
+        "published_at": pub_dt,
+    }
+
+
 def _fetch_news(news_service, ipo_service, news_agent, ipo_agent):
     def node(state: MonitorState) -> MonitorState:
+        import time as _time
+
         with SessionLocal() as session:
             tickers = [item.ticker for item in state["watchlist"]]
 
@@ -144,48 +194,29 @@ def _fetch_news(news_service, ipo_service, news_agent, ipo_agent):
                 seen_titles = {
                     r[0] for r in session.query(NewsItem.title).all()
                 }
-                for ticker in tickers[:5]:          # limit to avoid rate-limiting
+                for idx, ticker in enumerate(tickers[:5]):   # cap to 5 tickers
+                    if idx > 0:
+                        _time.sleep(1.5)                     # respect rate limits
                     try:
-                        raw = yf.Ticker(ticker).news or []
-                        for item in raw[:5]:
-                            content = item.get("content", {})
-                            title = content.get("title") or item.get("title", "")
-                            if not title or title in seen_titles:
+                        raw_list = yf.Ticker(ticker).news or []
+                        added = 0
+                        for raw in raw_list[:10]:
+                            parsed = _parse_yf_news_item(raw, ticker)
+                            if not parsed["title"] or parsed["title"] in seen_titles:
                                 continue
-                            seen_titles.add(title)
-                            summary = (
-                                content.get("summary")
-                                or content.get("description")
-                                or ""
-                            )[:500]
-                            source = (
-                                (content.get("provider") or {}).get("displayName", "")
-                                or item.get("publisher", "Yahoo Finance")
-                            )
-                            url = (
-                                (content.get("canonicalUrl") or {}).get("url", "")
-                                or item.get("link", "")
-                            )
-                            pub_raw = content.get("pubDate") or item.get("providerPublishTime")
-                            try:
-                                pub_dt = (
-                                    datetime.fromisoformat(str(pub_raw))
-                                    if isinstance(pub_raw, str)
-                                    else datetime.utcfromtimestamp(int(pub_raw))
-                                    if pub_raw else datetime.utcnow()
-                                )
-                            except Exception:
-                                pub_dt = datetime.utcnow()
+                            seen_titles.add(parsed["title"])
                             session.add(NewsItem(
-                                ticker=ticker,
+                                ticker=parsed["ticker"],
                                 sector=None,
-                                title=title,
-                                summary=summary,
-                                source=source,
-                                source_url=url,
-                                published_at=pub_dt,
+                                title=parsed["title"],
+                                summary=parsed["summary"],
+                                source=parsed["source"],
+                                source_url=parsed["source_url"],
+                                published_at=parsed["published_at"],
                             ))
-                        session.commit()
+                            added += 1
+                        if added:
+                            session.commit()
                     except Exception:
                         pass
             except Exception as exc:

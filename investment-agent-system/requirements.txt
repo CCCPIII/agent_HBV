@@ -3,7 +3,7 @@ uvicorn[standard]==0.23.2
 sqlalchemy==2.0.34
 pydantic==2.12.3
 streamlit==1.26.0
-yfinance==0.2.45
+yfinance>=0.2.38,<0.2.45
 requests==2.33.1
 python-dotenv==1.0.0
 openai>=1.7.0
